@@ -4,7 +4,7 @@
   "description": "",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "nodemon server.js",
     "dev": "nodemon --trace-warnings server.js",
     "build": "echo 'Backend build step complete'"
   },
@@ -13,19 +13,21 @@
   "license": "ISC",
   "dependencies": {
     "bcryptjs": "^2.4.3",
+    "colors": "^1.4.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "express-async-handler": "^1.2.0",
     "firebase": "^11.1.0",
     "firebase-admin": "^13.0.2",
     "ioredis": "^5.4.2",
     "jsonwebtoken": "^9.0.2",
     "kafkajs": "^2.2.4",
     "mongoose": "^8.4.1",
+    "mysql2": "^2.3.3",
     "socket.io": "^4.7.5",
-    "express-async-handler": "^1.2.0",
     "tls": "^0.0.1",
-    "colors": "^1.4.0"
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

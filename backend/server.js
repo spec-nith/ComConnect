@@ -4,6 +4,8 @@ const path = require("path");
 const Connection = require("./config/db");
 const cors = require("cors");
 const NotificationService = require("./services/notificationService");
+const { testMySQLConnection } = require('./config/mysql');
+const { connectDB } = require('./config/db');
 
 // Add process error handlers
 process.on('uncaughtException', (error) => {
@@ -54,7 +56,7 @@ const app = express();
 
 // Configure CORS with more detailed options
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || "http://localhost:3000",
+  origin: process.env.CORS_ORIGIN || "http://localhost:3000" || "https://com-connect.vercel.app/",
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -91,20 +93,23 @@ app.use(errorHandler);
 // Test connections on startup
 async function testConnections() {
   try {
+    // Test MySQL connection
+    const mysqlConnected = await testMySQLConnection();
+    
+    // Test MongoDB connection
+    await Connection();
+    
     // Test Redis and other connections
     const connectionStatus = await NotificationService.testConnections();
-    console.log('Connection Test Results:', connectionStatus);
     
-    if (connectionStatus.redis) {
-      console.log('✅ Redis connection successful');
-    } else {
-      console.log('❌ Redis connection failed');
-    }
+    console.log('Connection Test Results:', {
+      mysql: mysqlConnected,
+      mongodb: true,
+      redis: connectionStatus.redis
+    });
     
-    console.log('✅ All service connections tested');
   } catch (error) {
     console.error('❌ Service connection test failed:', error);
-    // Don't exit - allow retry logic to handle reconnection
   }
 }
 
@@ -118,6 +123,9 @@ const startServer = async () => {
     console.log('📡 Attempting to connect to MongoDB...');
     await Connection();
     
+    // Connect to MySQL
+    connectDB();
+    
     const PORT = process.env.PORT || 5000;
     const server = app.listen(PORT, '0.0.0.0', () => {
       console.log(`✅ Server running on port ${PORT}`);
@@ -128,7 +136,7 @@ const startServer = async () => {
     const io = require("socket.io")(server, {
       pingTimeout: 60000,
       cors: {
-        origin: process.env.CORS_ORIGIN || "http://localhost:3000",
+        origin: process.env.CORS_ORIGIN || "http://localhost:3000" || "https://com-connect.vercel.app",
         methods: ["GET", "POST"],
         credentials: true,
         allowedHeaders: ['Content-Type', 'Authorization']

@@ -1,21 +1,13 @@
 const asyncHandler = require("express-async-handler");
-const User = require("../models/userModel");
+const { UserSQL } = require("../models/userModel");
 const generateToken = require("../config/generateToken");
 
 //@description     Get or Search all users
 //@route           GET /api/user?search=
 //@access          Public
 const allUsers = asyncHandler(async (req, res) => {
-  const keyword = req.query.search
-    ? {
-        $or: [
-          { name: { $regex: req.query.search, $options: "i" } },
-          { email: { $regex: req.query.search, $options: "i" } },
-        ],
-      }
-    : {};
-
-  const users = await User.find(keyword).find({ _id: { $ne: req.user._id } });
+  const keyword = req.query.search || "";
+  const users = await UserSQL.searchUsers(keyword, req.user.id);
   res.send(users);
 });
 
@@ -27,35 +19,36 @@ const registerUser = asyncHandler(async (req, res) => {
 
   if (!name || !email || !password) {
     res.status(400);
-    throw new Error("Please Enter all the Feilds");
+    throw new Error("Please Enter all the Fields");
   }
 
-  const userExists = await User.findOne({ email });
+  try {
+    const existingUser = await UserSQL.findByEmail(email);
+    if (existingUser) {
+      res.status(400);
+      throw new Error("User already exists");
+    }
 
-  if (userExists) {
-    res.status(400);
-    throw new Error("User already exists");
-  }
+    const userId = await UserSQL.create({
+      name,
+      email,
+      password,
+      pic,
+    });
 
-  const user = await User.create({
-    name,
-    email,
-    password,
-    pic,
-  });
+    const user = await UserSQL.findById(userId);
 
-  if (user) {
     res.status(201).json({
-      _id: user._id,
+      id: user.id,
+      uuid: user.uuid,
       name: user.name,
       email: user.email,
-      isAdmin: user.isAdmin,
       pic: user.pic,
-      token: generateToken(user._id),
+      token: generateToken(user.id),
     });
-  } else {
+  } catch (error) {
     res.status(400);
-    throw new Error("User not found");
+    throw new Error(error.message);
   }
 });
 
@@ -64,26 +57,32 @@ const registerUser = asyncHandler(async (req, res) => {
 //@access          Public
 const authUser = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
-  const user = await User.findOne({ email });
 
-  if (!user) {
-    return res.status(401).json({ message: "User not found" });
+  try {
+    const user = await UserSQL.findByEmail(email);
+    if (!user) {
+      res.status(401);
+      throw new Error("Invalid Email or Password");
+    }
+
+    const isMatch = await UserSQL.verifyPassword(user.password_hash, password);
+    if (!isMatch) {
+      res.status(401);
+      throw new Error("Invalid Email or Password");
+    }
+
+    res.json({
+      id: user.id,
+      uuid: user.uuid,
+      name: user.name,
+      email: user.email,
+      pic: user.pic,
+      token: generateToken(user.id),
+    });
+  } catch (error) {
+    res.status(500);
+    throw new Error(error.message);
   }
-
-  const isMatch = await user.matchPassword(password);
-  if (!isMatch) {
-    return res.status(401).json({ message: "Invalid password" });
-  }
-
-  const token = generateToken(user._id);
-  res.json({
-    _id: user._id,
-    name: user.name,
-    email: user.email,
-    isAdmin: user.isAdmin,
-    pic: user.pic,
-    token: token,
-  });
 });
 
 const deleteAllUsers = asyncHandler(async (req, res) => {
