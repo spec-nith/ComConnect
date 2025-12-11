@@ -1,0 +1,16 @@
+{
+  "files": {
+    "main.css": "/static/css/main.b1752b1b.css",
+    "main.js": "/static/js/main.49a0d648.js",
+    "static/media/signup.png": "/static/media/signup.297226e09a80faf428b6.png",
+    "static/media/workspace.jpeg": "/static/media/workspace.39fec41190ce4c4889c7.jpeg",
+    "static/media/joinspace.jpeg": "/static/media/joinspace.67d132c45c22f53c5af3.jpeg",
+    "index.html": "/index.html",
+    "main.b1752b1b.css.map": "/static/css/main.b1752b1b.css.map",
+    "main.49a0d648.js.map": "/static/js/main.49a0d648.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.b1752b1b.css",
+    "static/js/main.49a0d648.js"
+  ]
+}
