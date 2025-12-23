@@ -1,13 +1,15 @@
 // Define URLs from environment variables
-const PROD_API_URL = "https://comconnect-backend.onrender.com/api";
-const LOCAL_API_URL = "http://localhost:5000/api";
+// Use API Gateway (port 8080) for all API calls
+const PROD_API_URL = process.env.REACT_APP_API_URL || "https://comconnect-backend.onrender.com/api";
+const LOCAL_API_URL = process.env.REACT_APP_API_URL || "http://localhost:8080/api";
 
 // Add this debug log at the very start
 console.log('Environment Variables:', {
     PROD_API_URL,
     LOCAL_API_URL,
     NODE_ENV: process.env.NODE_ENV,
-    USE_PROD_API: process.env.REACT_APP_USE_PROD_API
+    USE_PROD_API: process.env.REACT_APP_USE_PROD_API,
+    REACT_APP_API_URL: process.env.REACT_APP_API_URL
 });
 
 // Determine which URL to use based on environment
@@ -17,7 +19,7 @@ if (process.env.NODE_ENV === 'production' || process.env.REACT_APP_USE_PROD_API 
     API_URL = PROD_API_URL;
     console.log('Using Production API:', PROD_API_URL);
 } else {
-    console.log('Using Local API:', LOCAL_API_URL);
+    console.log('Using Local API Gateway:', LOCAL_API_URL);
 }
 
 // Debug logs

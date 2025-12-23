@@ -76,7 +76,8 @@ const Geo = () => {
   const initializeSocket = useCallback(() => {
     if (!user?.token) return;
 
-    const SOCKET_URL = API_URL.replace("/api", "");
+    // Use API Gateway for Socket.IO connection
+    const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || API_URL.replace("/api", "");
 
     const socket = io(SOCKET_URL, {
       reconnection: true,

@@ -3,7 +3,7 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 module.exports = function(app) {
   // Only proxy API requests, not Socket.IO
   if (!process.env.REACT_APP_USE_PROD_API) {
-    const target = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+    const target = process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:8080';
     
     console.log('Proxy Configuration:');
     console.log('- Target:', target);

@@ -3,15 +3,25 @@ import io from 'socket.io-client';
 import { API_URL } from "../config/api.config";
 
 // Determine Socket URL based on environment
-// In development with proxy, use relative path
-// In production, use full backend URL
+// Use API Gateway for all Socket.IO connections
 const getSocketURL = () => {
+  // Use API Gateway URL (port 8080) for Socket.IO
+  // Remove /api from API_URL to get base URL
+  const baseURL = API_URL.replace('/api', '');
+  
+  // If API_URL is already the gateway, use it directly
+  // Otherwise, construct gateway URL
+  if (baseURL.includes(':8080') || baseURL.includes('api-gateway')) {
+    return baseURL;
+  }
+  
+  // Fallback: construct gateway URL
   if (process.env.NODE_ENV === 'development' && !process.env.REACT_APP_USE_PROD_API) {
-    // In development, connect directly to backend
-    return 'http://localhost:5000';
+    // In development, use API Gateway
+    return process.env.REACT_APP_SOCKET_URL || 'http://localhost:8080';
   } else {
-    // Use full backend URL
-    return API_URL.replace('/api', '');
+    // In production, use the API URL base (should be gateway)
+    return baseURL;
   }
 };
 
