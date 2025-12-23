@@ -1,0 +1,88 @@
+# Prometheus Configuration
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'comconnect-microservices'
+    environment: 'production'
+
+# Alertmanager configuration (optional)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: []
+
+# Load rules once and periodically evaluate them
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # User Service
+  - job_name: 'user-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['user-service:5001']
+        labels:
+          service: 'user-service'
+          version: 'v1'
+
+  # Chat Service
+  - job_name: 'chat-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['chat-service:5002']
+        labels:
+          service: 'chat-service'
+          version: 'v1'
+
+  # Message Service
+  - job_name: 'message-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['message-service:5003']
+        labels:
+          service: 'message-service'
+          version: 'v1'
+
+  # Workspace Service
+  - job_name: 'workspace-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['workspace-service:5004']
+        labels:
+          service: 'workspace-service'
+          version: 'v1'
+
+  # Task Service
+  - job_name: 'task-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['task-service:5005']
+        labels:
+          service: 'task-service'
+          version: 'v1'
+
+  # Notification Service
+  - job_name: 'notification-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['notification-service:5006']
+        labels:
+          service: 'notification-service'
+          version: 'v1'
+
+  # API Gateway (if metrics available)
+  - job_name: 'api-gateway'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['api-gateway:80']
+        labels:
+          service: 'api-gateway'
+

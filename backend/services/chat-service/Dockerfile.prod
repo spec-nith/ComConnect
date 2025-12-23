@@ -1,0 +1,42 @@
+# Production Dockerfile - Multi-stage build
+# Stage 1: Build dependencies
+FROM node:18-slim AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install production dependencies only
+RUN npm ci --only=production && npm cache clean --force
+
+# Stage 2: Production image
+FROM node:18-slim
+
+# Install only runtime dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends wget curl && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy node_modules from builder
+COPY --from=builder /app/node_modules ./node_modules
+
+# Copy application files
+COPY . .
+
+# Create non-root user for security
+RUN groupadd -r nodeuser && useradd -r -g nodeuser nodeuser && \
+    chown -R nodeuser:nodeuser /app
+
+USER nodeuser
+
+EXPOSE 5002
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:5002/health || exit 1
+
+# Use production start command
+CMD ["npm", "start"]
