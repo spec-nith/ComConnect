@@ -6,6 +6,8 @@ This is a **production-grade, scalable, real-time workspace collaboration and ev
 
 ### **Key Features**
 - ✅ **Real-time chat** via WebSockets (Socket.IO)
+- ✅ **Redis Pub/Sub** for real-time chat updates
+- ✅ **Kafka event streaming** for async chat processing
 - ✅ **Workspace management** with granular roles
 - ✅ **Task tracking** integrated with MongoDB
 - ✅ **Push notifications** via Firebase Cloud Messaging
@@ -29,7 +31,7 @@ The application is built as a **production-grade microservices architecture** wi
 |---------|------|-------------|
 | **API Gateway** | 8080 | Nginx-based gateway for routing and load balancing |
 | **User Service** | 5001 | Authentication, user management, JWT tokens |
-| **Chat Service** | 5002 | Chat creation, group management |
+| **Chat Service** | 5002 | Chat creation, group management (Redis pub/sub, Kafka) |
 | **Message Service** | 5003 | Real-time messaging via Socket.IO |
 | **Workspace Service** | 5004 | Workspace and role management |
 | **Task Service** | 5005 | Task allocation and tracking |

@@ -32,6 +32,8 @@ const { apiVersioning, validateVersion } = require("../../shared/middleware/apiV
 const { addDeprecationHeaders } = require("../../shared/config/apiVersions");
 const { metricsMiddleware, getMetrics } = require("../../shared/middleware/metrics");
 const { initializeTracing, tracingMiddleware } = require("../../shared/middleware/tracing");
+const redisService = require("./services/redisService");
+const kafkaService = require("./services/kafkaService");
 const chatRoutes = require("./routes/chatRoutes");
 
 const app = express();
@@ -100,11 +102,29 @@ app.use("/api/v1/chat", (req, res, next) => {
 app.use(notFound);
 app.use(errorHandler);
 
-// Connect to database and start server
+// Connect to database, Redis, Kafka and start server
 const startServer = async () => {
   try {
     console.log('📡 Chat Service: Attempting to connect to MongoDB...');
     await Connection();
+    
+    // Test Redis connection
+    console.log('📡 Chat Service: Testing Redis connection...');
+    const redisConnected = await redisService.testConnection();
+    if (redisConnected) {
+      console.log('✅ Redis connection successful');
+      
+      // Subscribe to chat update channels
+      await redisService.subscribeToChannel('chat:updates', (data) => {
+        console.log('📨 Received chat update via Redis:', data.event);
+      });
+    } else {
+      console.warn('⚠️ Redis connection failed, continuing without Redis');
+    }
+    
+    // Initialize Kafka
+    console.log('📡 Chat Service: Initializing Kafka...');
+    await kafkaService.initialize();
     
     const PORT = process.env.CHAT_SERVICE_PORT || 5002;
     app.listen(PORT, '0.0.0.0', () => {
@@ -118,6 +138,30 @@ const startServer = async () => {
     }, 5000);
   }
 };
+
+// Graceful shutdown
+const gracefulShutdown = async (signal) => {
+  console.log(`\n${signal} received. Starting graceful shutdown...`);
+  
+  try {
+    // Shutdown Kafka
+    await kafkaService.shutdown();
+    
+    // Close Redis connections
+    await redisService.redisClient.quit();
+    await redisService.publisher.quit();
+    await redisService.subscriber.quit();
+    
+    console.log('✅ Chat Service shut down gracefully');
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Error during shutdown:', error);
+    process.exit(1);
+  }
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 console.log('🚀 Starting Chat Service...');
 startServer();

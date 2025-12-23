@@ -13,6 +13,8 @@ const {
   deleteAllChats,
 } = require("../controllers/chatControllers");
 const { protect } = require("../middleware/authMiddleware");
+const redisService = require("../services/redisService");
+const kafkaService = require("../services/kafkaService");
 
 const router = express.Router();
 
@@ -24,5 +26,39 @@ router.route("/groupremove").put(protect, removeFromGroup);
 router.route("/groupadd").put(protect, addToGroup);
 router.delete('/deleteAll', deleteAllChats);
 
-module.exports = router;
+// Health check endpoints for Redis and Kafka
+router.get('/health/redis', async (req, res) => {
+  try {
+    const isConnected = await redisService.testConnection();
+    res.status(isConnected ? 200 : 503).json({
+      status: isConnected ? 'ok' : 'error',
+      service: 'redis',
+      connected: isConnected
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: 'error',
+      service: 'redis',
+      error: error.message
+    });
+  }
+});
 
+router.get('/health/kafka', async (req, res) => {
+  try {
+    const isConnected = await kafkaService.testConnection();
+    res.status(isConnected ? 200 : 503).json({
+      status: isConnected ? 'ok' : 'error',
+      service: 'kafka',
+      connected: isConnected
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: 'error',
+      service: 'kafka',
+      error: error.message
+    });
+  }
+});
+
+module.exports = router;

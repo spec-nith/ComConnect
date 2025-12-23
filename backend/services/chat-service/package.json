@@ -19,7 +19,9 @@
     "express": "^4.19.2",
     "express-async-handler": "^1.2.0",
     "express-rate-limit": "^7.1.5",
+    "ioredis": "^5.4.2",
     "jsonwebtoken": "^9.0.2",
+    "kafkajs": "^2.2.4",
     "mongoose": "^8.4.1",
     "prom-client": "^15.1.0",
     "uuid": "^9.0.1"
