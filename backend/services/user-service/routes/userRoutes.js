@@ -6,7 +6,7 @@
 const express = require("express");
 const v1Routes = require("./userRoutes.v1");
 const v2Routes = require("./userRoutes.v2");
-const { createVersionedRouter } = require("../../shared/middleware/apiVersioning");
+const { createVersionedRouter } = require("../shared/middleware/apiVersioning");
 
 const router = express.Router();
 

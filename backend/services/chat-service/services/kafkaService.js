@@ -68,7 +68,10 @@ class KafkaService {
       console.log('✅ Kafka Service initialized successfully');
     } catch (error) {
       this.connected = false;
-      console.error('❌ Error initializing Kafka Service:', error);
+      console.warn('⚠️ Kafka Service initialization failed, continuing without Kafka:', error.message);
+      // Set environment variable to silence KafkaJS partitioner warning
+      process.env.KAFKAJS_NO_PARTITIONER_WARNING = '1';
+      // Don't throw - allow service to continue without Kafka
     }
   }
 

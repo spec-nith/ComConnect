@@ -7,7 +7,8 @@ const taskSchema = new mongoose.Schema({
   status: { type: String, default: 'to-do' },
   comments: [{ user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, comment: String }],
   attachments: { type: [String], default: [] },
-  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  workspace: { type: mongoose.Schema.Types.ObjectId, ref: 'Workspace' }
 });
 
 module.exports = mongoose.model('Task', taskSchema);

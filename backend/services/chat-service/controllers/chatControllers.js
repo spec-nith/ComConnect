@@ -4,8 +4,8 @@ const User = require("../models/userModel");
 const Workspace = require("../models/workspaceModel");
 const redisService = require("../services/redisService");
 const kafkaService = require("../services/kafkaService");
-const { createSpan, addSpanAttribute, recordSpanError } = require("../../shared/middleware/tracing");
-const { trackDbOperation } = require("../../shared/middleware/metrics");
+const { createSpan, addSpanAttribute, recordSpanError } = require("../shared/middleware/tracing");
+const { trackDbOperation } = require("../shared/middleware/metrics");
 
 //@description     Create or fetch One to One Chat
 //@route           POST /api/chat/

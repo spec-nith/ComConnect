@@ -1,7 +1,7 @@
 const express = require("express");
 const dotenv = require("dotenv");
 const path = require("path");
-const cors = require("cors");
+// CORS is handled by API Gateway
 
 // Load environment variables
 const envPaths = [
@@ -26,15 +26,16 @@ if (!envLoaded) {
 
 const Connection = require("./config/db");
 const { notFound, errorHandler } = require("./middleware/errorMiddleware");
-const requestIdMiddleware = require("../../shared/middleware/requestId");
-const { apiLimiter } = require("../../shared/middleware/rateLimiter");
-const { apiVersioning, validateVersion } = require("../../shared/middleware/apiVersioning");
-const { addDeprecationHeaders } = require("../../shared/config/apiVersions");
-const { metricsMiddleware, getMetrics } = require("../../shared/middleware/metrics");
-const { initializeTracing, tracingMiddleware } = require("../../shared/middleware/tracing");
+const requestIdMiddleware = require("./shared/middleware/requestId");
+const { apiLimiter } = require("./shared/middleware/rateLimiter");
+const { apiVersioning, validateVersion } = require("./shared/middleware/apiVersioning");
+const { addDeprecationHeaders } = require("./shared/config/apiVersions");
+const { metricsMiddleware, getMetrics } = require("./shared/middleware/metrics");
+const { initializeTracing, tracingMiddleware } = require("./shared/middleware/tracing");
 const redisService = require("./services/redisService");
 const kafkaService = require("./services/kafkaService");
 const chatRoutes = require("./routes/chatRoutes");
+const mongoose = require("mongoose");
 
 const app = express();
 
@@ -54,13 +55,7 @@ app.use(metricsMiddleware(SERVICE_NAME));
 // API Versioning middleware (before routes)
 app.use(apiVersioning);
 
-// Configure CORS
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || "http://localhost:3000",
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-API-Version']
-}));
+// CORS is handled by API Gateway (nginx)
 
 app.use(express.json());
 
@@ -74,7 +69,7 @@ app.get('/health', (req, res) => {
 
 // Version info endpoint
 app.get('/api/version', (req, res) => {
-  const { getVersionInfo } = require("../../shared/config/apiVersions");
+  const { getVersionInfo } = require("./shared/config/apiVersions");
   const versionInfo = getVersionInfo(req.apiVersion);
   res.json({
     currentVersion: versionInfo.version,
@@ -108,6 +103,22 @@ const startServer = async () => {
     console.log('📡 Chat Service: Attempting to connect to MongoDB...');
     await Connection();
     
+    // Ensure Message model is registered after DB connection
+    // This is needed because Chat model references Message in latestMessage field
+    if (!mongoose.models.Message) {
+      const messageSchema = mongoose.Schema(
+        {
+          sender: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+          content: { type: String, trim: true },
+          chat: { type: mongoose.Schema.Types.ObjectId, ref: "Chat" },
+          readBy: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+        },
+        { timestamps: true }
+      );
+      mongoose.model("Message", messageSchema);
+      console.log('✅ Message model registered');
+    }
+    
     // Test Redis connection
     console.log('📡 Chat Service: Testing Redis connection...');
     const redisConnected = await redisService.testConnection();
@@ -116,7 +127,28 @@ const startServer = async () => {
       
       // Subscribe to chat update channels
       await redisService.subscribeToChannel('chat:updates', (data) => {
-        console.log('📨 Received chat update via Redis:', data.event);
+        console.log('📨 [Chat Service] Received update via Redis:', {
+          event: data.event,
+          service: data.service,
+          timestamp: data.timestamp,
+          chatId: data.data?.chatId || data.data?.chat?._id,
+          messageId: data.data?.messageId || data.data?._id,
+          senderId: data.data?.senderId || data.data?.sender?._id,
+          senderName: data.data?.senderName || data.data?.sender?.name
+        });
+        
+        // Log specific event types
+        if (data.event === 'message.sent') {
+          console.log(`💬 [Chat Service] New message in chat ${data.data?.chatId}:`, {
+            messageId: data.data?.messageId,
+            sender: data.data?.senderName,
+            preview: data.data?.content?.substring(0, 50) + '...'
+          });
+        } else if (data.event === 'chat.created') {
+          console.log(`🆕 [Chat Service] New chat created: ${data.data?.chatId}`);
+        } else if (data.event === 'group-chat.created') {
+          console.log(`👥 [Chat Service] New group chat created: ${data.data?.chatId}`);
+        }
       });
     } else {
       console.warn('⚠️ Redis connection failed, continuing without Redis');

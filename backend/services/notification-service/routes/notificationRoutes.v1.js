@@ -6,7 +6,7 @@ const express = require('express');
 const { protect } = require('../middleware/authMiddleware');
 const NotificationService = require('../services/notificationService');
 const User = require('../models/userModel');
-const admin = require('../config/firebase.js');
+const { admin, isInitialized } = require('../config/firebase.js');
 
 const router = express.Router();
 
@@ -69,6 +69,13 @@ router.get('/test-kafka-connection', protect, async (req, res) => {
 
 router.post('/test-fcm', protect, async (req, res) => {
   try {
+    if (!isInitialized()) {
+      return res.status(503).json({ 
+        error: 'Firebase is not initialized. Please add Firebase credentials to enable push notifications.',
+        firebaseAvailable: false
+      });
+    }
+
     if (!req.user || !req.user._id) {
       return res.status(401).json({ 
         error: 'User not authenticated properly',

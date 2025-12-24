@@ -15,9 +15,14 @@ const Connection = async () => {
     }
     
 
-    const mongoURI = process.env.MONGO_URI
-        .replace("<username>", process.env.DB_USERNAME)
-        .replace("<password>", process.env.DB_PASSWORD);
+    let mongoURI = process.env.MONGO_URI;
+    
+    // Replace placeholders if they exist
+    if (mongoURI.includes("<username>") && mongoURI.includes("<password>")) {
+        mongoURI = mongoURI
+            .replace("<username>", process.env.DB_USERNAME)
+            .replace("<password>", process.env.DB_PASSWORD);
+    }
 
     // Log the connection URL (with masked password)
     const maskedURL = mongoURI.replace(/:([^@]+)@/, ':****@');

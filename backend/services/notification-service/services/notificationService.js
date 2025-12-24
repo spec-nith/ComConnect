@@ -1,4 +1,4 @@
-const admin = require('../config/firebase');
+const { admin, isInitialized } = require('../config/firebase');
 const { Kafka } = require('kafkajs');
 const Redis = require('ioredis');
 
@@ -203,6 +203,12 @@ class NotificationService {
     };
 
     try {
+      if (!admin || !isInitialized()) {
+        console.warn('⚠️ Firebase not initialized. Notification will be logged but not sent via FCM.');
+        console.log('📝 Notification logged:', { userId, title, body, data });
+        return { success: true, message: 'Notification logged (Firebase not available)' };
+      }
+      
       console.log('📤 Sending FCM message:', message);
       const response = await admin.messaging().send(message);
       console.log('✅ FCM notification sent successfully:', response);

@@ -6,13 +6,16 @@ RUN apt-get update && apt-get install -y wget iputils-ping && rm -rf /var/lib/ap
 WORKDIR /app
 
 # Copy package files first
-COPY package*.json ./
+COPY chat-service/package*.json ./
 
-# Install dependencies
+# Install ALL dependencies (including dev)
 RUN npm install
 
 # Copy service files
-COPY . .
+COPY chat-service/ .
+
+# Copy shared directory
+COPY shared /app/shared
 
 EXPOSE 5002
 

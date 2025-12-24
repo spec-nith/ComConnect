@@ -2,9 +2,11 @@ const asyncHandler = require("express-async-handler");
 const Message = require("../models/messageModel");
 const User = require("../models/userModel");
 const Chat = require("../models/chatModel");
-const { makeRequest } = require("../../shared/utils/circuitBreaker");
-const { createSpan, addSpanAttribute, recordSpanError } = require("../../shared/middleware/tracing");
-const { trackDbOperation } = require("../../shared/middleware/metrics");
+const { makeRequest } = require("../shared/utils/circuitBreaker");
+const { createSpan, addSpanAttribute, recordSpanError } = require("../shared/middleware/tracing");
+const { trackDbOperation } = require("../shared/middleware/metrics");
+const redisService = require("../services/redisService");
+const kafkaService = require("../services/kafkaService");
 
 //@description     Get all Messages
 //@route           GET /api/Message/:chatId
@@ -32,98 +34,99 @@ const sendMessage = asyncHandler(async (req, res) => {
     return res.sendStatus(400);
   }
 
-  var newMessage = {
-    sender: req.user._id,
-    content: content,
-    chat: chatId,
-  };
-
   try {
-    // Create span for database operations
-    const dbSpan = createSpan('database.create_message', req.span);
-    const endDbTimer = trackDbOperation('create', 'messages', 'message-service');
-    
-    var message = await Message.create(newMessage);
-    endDbTimer();
-    dbSpan.end();
-    
-    // Populate message
-    const populateSpan = createSpan('database.populate_message', req.span);
-    message = await message.populate("sender", "name pic");
-    message = await message.populate("chat");
-    message = await User.populate(message, {
-      path: "chat.users",
-      select: "name pic email",
-    });
-    populateSpan.end();
+    // Get chat info for response
+    const chat = await Chat.findById(chatId).populate("users", "name pic email");
+    if (!chat) {
+      res.status(404);
+      throw new Error("Chat not found");
+    }
 
-    // Update chat
-    const updateSpan = createSpan('database.update_chat', req.span);
-    await Chat.findByIdAndUpdate(req.body.chatId, {
-      latestMessage: message,
-    });
-    updateSpan.end();
+    // KAFKA-FIRST ARCHITECTURE: Publish to Kafka instead of saving directly to DB
+    // The Kafka consumer will handle persistence to MongoDB
+    const kafkaSpan = createSpan('kafka.publish_message', req.span);
+    const endKafkaTimer = trackDbOperation('publish', 'kafka', 'message-service');
     
-    addSpanAttribute('message.id', message._id.toString());
+    // Generate temporary message ID for response
+    const mongoose = require('mongoose');
+    const tempMessageId = new mongoose.Types.ObjectId().toString();
+    
+    // Publish message to Kafka for persistence
+    const published = await kafkaService.publishMessageForPersistence({
+      tempMessageId: tempMessageId,
+      senderId: req.user._id.toString(),
+      senderName: req.user.name,
+      content: content,
+      chatId: chatId.toString(),
+      isGroupChat: chat.isGroupChat,
+      chatName: chat.chatName || '',
+      users: chat.users.map(u => ({
+        _id: u._id.toString(),
+        name: u.name,
+        pic: u.pic,
+        email: u.email
+      })),
+      timestamp: new Date().toISOString(),
+      requestId: req.id
+    }, req.id);
+    
+    endKafkaTimer();
+    kafkaSpan.end();
+    
+    if (!published) {
+      // Fallback: If Kafka fails, save directly to DB (graceful degradation)
+      console.warn('⚠️ Kafka publish failed, falling back to direct DB save');
+      const dbSpan = createSpan('database.create_message_fallback', req.span);
+      const message = await Message.create({
+        sender: req.user._id,
+        content: content,
+        chat: chatId,
+      });
+      
+      let populatedMessage = await message.populate("sender", "name pic");
+      populatedMessage = await populatedMessage.populate("chat");
+      populatedMessage = await User.populate(populatedMessage, {
+        path: "chat.users",
+        select: "name pic email",
+      });
+      
+      await Chat.findByIdAndUpdate(chatId, {
+        latestMessage: populatedMessage,
+      });
+      
+      dbSpan.end();
+      return res.json(populatedMessage);
+    }
+
+    // Return response immediately (async processing)
+    // The actual message will be saved by Kafka consumer
+    // Frontend will receive updates via Socket.IO/Redis
+    const responseMessage = {
+      _id: tempMessageId,
+      sender: {
+        _id: req.user._id,
+        name: req.user.name,
+        pic: req.user.pic
+      },
+      content: content,
+      chat: {
+        _id: chatId,
+        users: chat.users,
+        isGroupChat: chat.isGroupChat,
+        chatName: chat.chatName
+      },
+      createdAt: new Date(),
+      pending: true // Indicates message is being processed
+    };
+
+    addSpanAttribute('message.tempId', tempMessageId);
     addSpanAttribute('chat.id', chatId);
+    addSpanAttribute('kafka.published', 'true');
 
-    // Send notifications via notification service with circuit breaker and tracing
-    const notificationSpan = createSpan('notifications.send', req.span);
-    addSpanAttribute('notification.recipients.count', message.chat.users.length - 1);
-    
-    const notificationPromises = message.chat.users.map(async (user) => {
-      if (user._id.toString() !== req.user._id.toString()) {
-        const userSpan = createSpan(`notification.send_to_user.${user._id}`, notificationSpan);
-        try {
-          const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL || 'http://notification-service:5006';
-          await makeRequest(
-            `${notificationServiceUrl}/api/notification/send`,
-            {
-              method: 'POST',
-              data: {
-                userId: user._id.toString(),
-                title: message.chat.isGroupChat 
-                  ? `New message in ${message.chat.chatName}`
-                  : `New message from ${message.sender.name}`,
-                body: content,
-                data: {
-                  type: 'new_message',
-                  chatId: chatId.toString(),
-                  messageId: message._id.toString(),
-                  senderId: message.sender._id.toString(),
-                  senderName: message.sender.name,
-                  isGroupChat: message.chat.isGroupChat.toString(),
-                  chatName: message.chat.chatName || '',
-                  timestamp: new Date().toISOString()
-                }
-              },
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Request-ID': req.id || ''
-              },
-              requestId: req.id,
-              timeout: 5000
-            },
-            'notificationService'
-          );
-          userSpan.setAttribute('notification.status', 'success');
-          userSpan.end();
-        } catch (error) {
-          console.error(`❌ Notification failed for user ${user._id}:`, error.message);
-          recordSpanError(error);
-          userSpan.setAttribute('notification.status', 'failed');
-          userSpan.end();
-        }
-      }
-    });
-    
-    await Promise.all(notificationPromises);
-    notificationSpan.end();
+    console.log(`📤 [Message Service] Message published to Kafka for persistence - Chat: ${chatId}, Temp ID: ${tempMessageId}`);
+    console.log(`✅ Message queued for persistence via Kafka`);
 
-    await Promise.all(notificationPromises);
-    console.log('✅ All notifications processed');
-
-    res.json(message);
+    res.json(responseMessage);
   } catch (error) {
     console.error('❌ Error in sendMessage:', error);
     res.status(400);

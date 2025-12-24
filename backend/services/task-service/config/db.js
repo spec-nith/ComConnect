@@ -8,9 +8,14 @@ const Connection = async () => {
         throw new Error('DB_USERNAME or DB_PASSWORD is not defined in environment variables');
     }
     
-    const mongoURI = process.env.MONGO_URI
-        .replace("<username>", process.env.DB_USERNAME)
-        .replace("<password>", process.env.DB_PASSWORD);
+    let mongoURI = process.env.MONGO_URI;
+    
+    // Replace placeholders if they exist
+    if (mongoURI.includes("<username>") && mongoURI.includes("<password>")) {
+        mongoURI = mongoURI
+            .replace("<username>", process.env.DB_USERNAME)
+            .replace("<password>", process.env.DB_PASSWORD);
+    }
 
     const maskedURL = mongoURI.replace(/:([^@]+)@/, ':****@');
     console.log('Attempting to connect with URL:', maskedURL);

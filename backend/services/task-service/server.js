@@ -1,7 +1,7 @@
 const express = require("express");
 const dotenv = require("dotenv");
 const path = require("path");
-const cors = require("cors");
+// CORS is handled by API Gateway
 
 // Load environment variables
 const envPaths = [
@@ -26,12 +26,12 @@ if (!envLoaded) {
 
 const Connection = require("./config/db");
 const { notFound, errorHandler } = require("./middleware/errorMiddleware");
-const requestIdMiddleware = require("../../shared/middleware/requestId");
-const { apiLimiter } = require("../../shared/middleware/rateLimiter");
-const { apiVersioning, validateVersion } = require("../../shared/middleware/apiVersioning");
-const { addDeprecationHeaders } = require("../../shared/config/apiVersions");
-const { metricsMiddleware, getMetrics } = require("../../shared/middleware/metrics");
-const { initializeTracing, tracingMiddleware } = require("../../shared/middleware/tracing");
+const requestIdMiddleware = require("./shared/middleware/requestId");
+const { apiLimiter } = require("./shared/middleware/rateLimiter");
+const { apiVersioning, validateVersion } = require("./shared/middleware/apiVersioning");
+const { addDeprecationHeaders } = require("./shared/config/apiVersions");
+const { metricsMiddleware, getMetrics } = require("./shared/middleware/metrics");
+const { initializeTracing, tracingMiddleware } = require("./shared/middleware/tracing");
 const taskRoutes = require("./routes/taskRoutes");
 
 const app = express();
@@ -52,18 +52,12 @@ app.use(metricsMiddleware(SERVICE_NAME));
 // API Versioning middleware (before routes)
 app.use(apiVersioning);
 
-// Configure CORS
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || "http://localhost:3000",
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-API-Version']
-}));
+// CORS is handled by API Gateway (nginx)
 
 app.use(express.json());
 
-// Global rate limiting
-app.use(apiLimiter);
+// Rate limiting removed for task service - handled by API Gateway
+// app.use(apiLimiter);
 
 // Health check endpoint (no versioning)
 app.get('/health', (req, res) => {
@@ -72,7 +66,7 @@ app.get('/health', (req, res) => {
 
 // Version info endpoint
 app.get('/api/version', (req, res) => {
-  const { getVersionInfo } = require("../../shared/config/apiVersions");
+  const { getVersionInfo } = require("./shared/config/apiVersions");
   const versionInfo = getVersionInfo(req.apiVersion);
   res.json({
     currentVersion: versionInfo.version,

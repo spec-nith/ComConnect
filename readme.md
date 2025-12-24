@@ -381,6 +381,46 @@ All services include:
 
 ---
 
+## ☁️ AWS Infrastructure
+
+### **Production-Grade AWS Deployment**
+
+Complete AWS infrastructure setup is available in `aws-infrastructure/`:
+
+- **Terraform Configuration**: Infrastructure as Code
+- **VPC Architecture**: Multi-AZ with public/private/database subnets
+- **ECS Fargate**: Serverless container orchestration
+- **Application Load Balancer**: External traffic routing
+- **Internal NLB**: Service-to-service communication
+- **Security Groups**: Network-level security
+- **DocumentDB**: Managed MongoDB
+- **ElastiCache**: Managed Redis
+- **Amazon MSK**: Managed Kafka
+- **CloudWatch**: Logging and monitoring
+- **Auto Scaling**: Automatic scaling based on load
+
+### **Quick Start**
+
+```bash
+cd aws-infrastructure/terraform
+terraform init
+terraform plan
+terraform apply
+```
+
+See `aws-infrastructure/README.md` for complete documentation.
+
+### **Key Features**
+
+- ✅ **Multi-AZ Deployment**: High availability across availability zones
+- ✅ **Auto Scaling**: Automatic scaling based on CPU/memory
+- ✅ **Security Groups**: Network-level security for all services
+- ✅ **Encryption**: At rest and in transit
+- ✅ **Monitoring**: CloudWatch, X-Ray, Prometheus
+- ✅ **Cost Optimization**: Reserved instances, spot instances
+
+---
+
 ## 🔒 Security Features
 
 - JWT-based authentication

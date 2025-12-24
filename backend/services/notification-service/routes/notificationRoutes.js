@@ -5,7 +5,7 @@
 
 const express = require('express');
 const v1Routes = require('./notificationRoutes.v1');
-const { createVersionedRouter } = require('../../shared/middleware/apiVersioning');
+const { createVersionedRouter } = require('../shared/middleware/apiVersioning');
 
 const router = express.Router();
 

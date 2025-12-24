@@ -1,7 +1,7 @@
 const express = require("express");
 const dotenv = require("dotenv");
 const path = require("path");
-const cors = require("cors");
+// CORS is handled by API Gateway
 
 // Load environment variables
 const envPaths = [
@@ -26,12 +26,14 @@ if (!envLoaded) {
 
 const Connection = require("./config/db");
 const { notFound, errorHandler } = require("./middleware/errorMiddleware");
-const requestIdMiddleware = require("../../shared/middleware/requestId");
-const { apiLimiter } = require("../../shared/middleware/rateLimiter");
-const { apiVersioning, validateVersion } = require("../../shared/middleware/apiVersioning");
-const { addDeprecationHeaders } = require("../../shared/config/apiVersions");
-const { metricsMiddleware, getMetrics } = require("../../shared/middleware/metrics");
-const { initializeTracing, tracingMiddleware } = require("../../shared/middleware/tracing");
+const requestIdMiddleware = require("./shared/middleware/requestId");
+const { apiLimiter } = require("./shared/middleware/rateLimiter");
+const { apiVersioning, validateVersion } = require("./shared/middleware/apiVersioning");
+const { addDeprecationHeaders } = require("./shared/config/apiVersions");
+const { metricsMiddleware, getMetrics } = require("./shared/middleware/metrics");
+const { initializeTracing, tracingMiddleware } = require("./shared/middleware/tracing");
+const redisService = require("./services/redisService");
+const kafkaService = require("./services/kafkaService");
 const messageRoutes = require("./routes/messageRoutes");
 
 const app = express();
@@ -52,13 +54,7 @@ app.use(metricsMiddleware(SERVICE_NAME));
 // API Versioning middleware (before routes)
 app.use(apiVersioning);
 
-// Configure CORS
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || "http://localhost:3000",
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-API-Version']
-}));
+// CORS is handled by API Gateway (nginx)
 
 app.use(express.json());
 
@@ -72,7 +68,7 @@ app.get('/health', (req, res) => {
 
 // Version info endpoint
 app.get('/api/version', (req, res) => {
-  const { getVersionInfo } = require("../../shared/config/apiVersions");
+  const { getVersionInfo } = require("./shared/config/apiVersions");
   const versionInfo = getVersionInfo(req.apiVersion);
   res.json({
     currentVersion: versionInfo.version,
@@ -105,6 +101,19 @@ const startServer = async () => {
   try {
     console.log('📡 Message Service: Attempting to connect to MongoDB...');
     await Connection();
+    
+    // Test Redis connection
+    console.log('📡 Message Service: Testing Redis connection...');
+    const redisConnected = await redisService.testConnection();
+    if (redisConnected) {
+      console.log('✅ Redis connection successful (Message Service)');
+    } else {
+      console.warn('⚠️ Redis connection failed, continuing without Redis');
+    }
+    
+    // Initialize Kafka
+    console.log('📡 Message Service: Initializing Kafka...');
+    await kafkaService.initialize();
     
     const PORT = process.env.MESSAGE_SERVICE_PORT || 5003;
     const server = app.listen(PORT, '0.0.0.0', () => {
@@ -205,6 +214,25 @@ const startServer = async () => {
     }, 5000);
   }
 };
+
+// Graceful shutdown
+const gracefulShutdown = async (signal) => {
+  console.log(`\n${signal} received. Starting graceful shutdown...`);
+  
+  try {
+    // Shutdown Kafka
+    await kafkaService.shutdown();
+    
+    console.log('✅ Message Service shut down gracefully');
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Error during shutdown:', error);
+    process.exit(1);
+  }
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 console.log('🚀 Starting Message Service...');
 startServer();
