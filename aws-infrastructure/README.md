@@ -38,7 +38,8 @@ Internet
     └─── [Notification Service] ────► [ECS Fargate / EC2]
 
 [Data Layer]
-    ├─── [MongoDB Atlas / DocumentDB]
+    ├─── [RDS PostgreSQL] (Users & Workspaces)
+    ├─── [Amazon Keyspaces (Cassandra)] (Messages & Chats)
     ├─── [ElastiCache Redis]
     ├─── [MSK (Managed Kafka)]
     └─── [S3] (File Storage)
@@ -68,8 +69,9 @@ VPC: 10.0.0.0/16
 │   └── Internal Load Balancers
 │
 └── Database Subnets (10.0.20.0/24, 10.0.21.0/24) - Multi-AZ
+    ├── RDS PostgreSQL
     ├── ElastiCache Redis
-    ├── DocumentDB (MongoDB)
+    ├── DocumentDB (MongoDB) - Optional/Backward Compat
     └── MSK (Kafka)
 ```
 
@@ -90,24 +92,29 @@ VPC: 10.0.0.0/16
   - Port 5001-5006 from API Gateway security group
   - Port 5001-5006 from same security group (inter-service)
 - **Outbound**: 
-  - Port 27017 to DocumentDB security group
+  - Port 5432 to RDS PostgreSQL security group
+  - Port 27017 to DocumentDB security group (optional)
   - Port 6379 to ElastiCache security group
   - Port 9092 to MSK security group
-  - HTTPS (443) to internet (for external APIs)
+  - HTTPS (443) to internet (for external APIs and Cassandra Keyspaces)
 
-### **4. DocumentDB Security Group**
+### **4. RDS PostgreSQL Security Group**
+- **Inbound**: Port 5432 from microservices security group
+- **Outbound**: None
+
+### **5. DocumentDB Security Group** (Optional/Backward Compat)
 - **Inbound**: Port 27017 from microservices security group
 - **Outbound**: None
 
-### **5. ElastiCache Security Group**
+### **6. ElastiCache Security Group**
 - **Inbound**: Port 6379 from microservices security group
 - **Outbound**: None
 
-### **6. MSK Security Group**
+### **7. MSK Security Group**
 - **Inbound**: Port 9092-9096 from microservices security group
 - **Outbound**: None
 
-### **7. Prometheus/Grafana Security Group**
+### **8. Prometheus/Grafana Security Group**
 - **Inbound**: Port 9090, 3001 from VPC CIDR
 - **Outbound**: All traffic
 
@@ -147,10 +154,12 @@ VPC: 10.0.0.0/16
 - **Internet Gateway** for public subnet
 
 ### **3. Data Storage**
-- **DocumentDB** (MongoDB-compatible) or **MongoDB Atlas**
+- **RDS PostgreSQL** for users and workspaces (via Prisma ORM)
+- **Amazon Keyspaces** (Cassandra-compatible) for messages and chats
 - **ElastiCache Redis** for caching
-- **Amazon MSK** (Managed Kafka)
+- **Amazon MSK** (Managed Kafka) for event streaming
 - **S3** for file storage
+- **DocumentDB** (MongoDB-compatible) - Optional, kept for backward compatibility
 
 ### **4. Monitoring**
 - **CloudWatch** for logs and metrics
@@ -220,7 +229,23 @@ VPC: 10.0.0.0/16
 
 ## 💾 Database Configuration
 
-### **DocumentDB**
+### **RDS PostgreSQL**
+- **Engine**: PostgreSQL 15.4
+- **Instance Class**: db.r5.large (2 vCPU, 16GB RAM)
+- **Storage**: 100GB (auto-scaling up to 1TB)
+- **Multi-AZ**: Enabled in production
+- **Backup Retention**: 7 days
+- **Encryption**: Enabled at rest and in transit
+- **Performance Insights**: Enabled
+
+### **Amazon Keyspaces (Cassandra)**
+- **Service**: Fully managed Apache Cassandra-compatible
+- **Replication**: Multi-region support
+- **Point-in-Time Recovery**: Enabled
+- **Encryption**: Enabled at rest and in transit
+- **Tables**: messages, chats
+
+### **DocumentDB** (Optional/Backward Compat)
 - **Instance Class**: db.r5.large (2 vCPU, 16GB RAM)
 - **Multi-AZ**: Enabled
 - **Backup Retention**: 7 days

@@ -97,7 +97,7 @@ app.use(errorHandler);
 // Connect to database and start server
 const startServer = async () => {
   try {
-    console.log('📡 Workspace Service: Attempting to connect to MongoDB...');
+    console.log('📡 Workspace Service: Attempting to connect to PostgreSQL...');
     await Connection();
     
     const PORT = process.env.WORKSPACE_SERVICE_PORT || 5004;

@@ -11,11 +11,14 @@ COPY message-service/package*.json ./
 # Install ALL dependencies (including dev)
 RUN npm install
 
-# Copy service files
+# Copy service files (node_modules excluded via .dockerignore)
 COPY message-service/ .
 
 # Copy shared directory
 COPY shared /app/shared
+
+# Install shared dependencies if package.json exists
+RUN if [ -f /app/shared/package.json ]; then cd /app/shared && npm install; fi
 
 EXPOSE 5003
 

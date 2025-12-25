@@ -1,14 +1,12 @@
 /**
  * Kafka Service for Message Service
  * Handles async message events and analytics
+ * Messages are persisted to Cassandra via Kafka
  */
 
 const { Kafka } = require('kafkajs');
-
-// Load models at module level to ensure they're registered with mongoose
-const Message = require('../models/messageModel');
-const Chat = require('../models/chatModel');
-const User = require('../models/userModel');
+const cassandraService = require('./cassandraService');
+const elasticsearchService = require('../../shared/services/elasticsearchService');
 
 // Kafka Configuration
 const kafkaConfig = {
@@ -56,7 +54,6 @@ class KafkaService {
       console.log('✅ Kafka Producer connected (Message Service)');
       
       // Initialize consumer for message persistence
-      // Use a unique group ID for message persistence (hardcoded to avoid conflicts)
       const groupId = 'message-persistence-group';
       console.log(`📋 Using Kafka Consumer Group ID: ${groupId}`);
       this.consumer = kafka.consumer({
@@ -93,7 +90,6 @@ class KafkaService {
     } catch (error) {
       this.connected = false;
       console.warn('⚠️ Kafka Service initialization failed, continuing without Kafka:', error.message);
-      // Set environment variable to silence KafkaJS partitioner warning
       process.env.KAFKAJS_NO_PARTITIONER_WARNING = '1';
       return false;
     }
@@ -101,7 +97,7 @@ class KafkaService {
 
   /**
    * Handle message persistence from Kafka
-   * This is where messages are actually saved to MongoDB
+   * This is where messages are actually saved to Cassandra
    */
   async handleMessagePersistence(topic, event) {
     try {
@@ -117,49 +113,67 @@ class KafkaService {
         contentPreview: messageData.content?.substring(0, 50)
       });
 
-      // Create message in MongoDB
-      const newMessage = await Message.create({
-        sender: messageData.senderId,
+      // Save message to Cassandra
+      const savedMessage = await cassandraService.saveMessage({
+        chatId: messageData.chatId,
+        senderId: messageData.senderId,
         content: messageData.content,
-        chat: messageData.chatId
+        mediaUrl: messageData.mediaUrl,
+        mediaType: messageData.mediaType,
+        mediaThumbnail: messageData.mediaThumbnail,
+        readBy: []
       });
 
-      // Populate message
-      let message = await newMessage.populate("sender", "name pic");
-      message = await message.populate("chat");
-      message = await User.populate(message, {
-        path: "chat.users",
-        select: "name pic email",
-      });
+      // Update chat's latest message in Cassandra
+      await cassandraService.updateChatLatestMessage(
+        messageData.chatId,
+        savedMessage.id
+      );
 
-      // Update chat with latest message
-      await Chat.findByIdAndUpdate(messageData.chatId, {
-        latestMessage: message,
-      });
-
-      console.log('✅ [Kafka Consumer] Message saved to MongoDB:', {
-        messageId: message._id.toString(),
+      console.log('✅ [Kafka Consumer] Message saved to Cassandra:', {
+        messageId: savedMessage.id,
         chatId: messageData.chatId
       });
+
+      // Index message in Elasticsearch (async, don't block)
+      try {
+        await elasticsearchService.indexMessage({
+          messageId: savedMessage.id,
+          chatId: messageData.chatId,
+          senderId: messageData.senderId,
+          content: messageData.content,
+          createdAt: savedMessage.createdAt || new Date().toISOString(),
+          updatedAt: savedMessage.updatedAt || new Date().toISOString(),
+          workspaceId: messageData.workspaceId
+        });
+        console.log('✅ [Kafka Consumer] Message indexed in Elasticsearch:', {
+          messageId: savedMessage.id
+        });
+      } catch (error) {
+        console.error('❌ [Kafka Consumer] Failed to index message in Elasticsearch:', error.message);
+        // Don't throw - Elasticsearch indexing failure shouldn't block message persistence
+      }
 
       // Publish to Redis for real-time updates
       const redisService = require('./redisService');
       await redisService.publishMessageEvent('chat:updates', 'message.sent', {
-        messageId: message._id.toString(),
+        messageId: savedMessage.id,
         chatId: messageData.chatId,
-        senderId: message.sender._id.toString(),
-        senderName: message.sender.name,
+        senderId: messageData.senderId,
+        senderName: messageData.senderName || '',
         content: messageData.content.substring(0, 100),
-        isGroupChat: message.chat.isGroupChat,
-        chatName: message.chat.chatName || '',
-        users: message.chat.users.map(u => u._id.toString()),
+        isGroupChat: messageData.isGroupChat || false,
+        chatName: messageData.chatName || '',
+        users: messageData.users?.map(u => u._id || u.id) || [],
         requestId: messageData.requestId
       });
 
       // Send notifications (async, don't block)
       const { makeRequest } = require('../shared/utils/circuitBreaker');
-      message.chat.users.forEach(async (user) => {
-        if (user._id.toString() !== messageData.senderId) {
+      const users = messageData.users || [];
+      users.forEach(async (user) => {
+        const userId = user._id || user.id;
+        if (userId !== messageData.senderId) {
           try {
             const notificationServiceUrl = process.env.NOTIFICATION_SERVICE_URL || 'http://notification-service:5006';
             await makeRequest(
@@ -167,19 +181,19 @@ class KafkaService {
               {
                 method: 'POST',
                 data: {
-                  userId: user._id.toString(),
-                  title: message.chat.isGroupChat 
-                    ? `New message in ${message.chat.chatName}`
-                    : `New message from ${message.sender.name}`,
+                  userId: userId,
+                  title: messageData.isGroupChat 
+                    ? `New message in ${messageData.chatName}`
+                    : `New message from ${messageData.senderName}`,
                   body: messageData.content,
                   data: {
                     type: 'new_message',
                     chatId: messageData.chatId,
-                    messageId: message._id.toString(),
-                    senderId: message.sender._id.toString(),
-                    senderName: message.sender.name,
-                    isGroupChat: message.chat.isGroupChat.toString(),
-                    chatName: message.chat.chatName || '',
+                    messageId: savedMessage.id,
+                    senderId: messageData.senderId,
+                    senderName: messageData.senderName || '',
+                    isGroupChat: messageData.isGroupChat.toString(),
+                    chatName: messageData.chatName || '',
                     timestamp: new Date().toISOString()
                   }
                 },
@@ -193,21 +207,21 @@ class KafkaService {
               'notificationService'
             );
           } catch (error) {
-            console.error(`❌ Notification failed for user ${user._id}:`, error.message);
+            console.error(`❌ Notification failed for user ${userId}:`, error.message);
           }
         }
       });
 
       // Publish to analytics topic
       await this.publishMessageEvent('chat-events', 'message.sent', {
-        messageId: message._id.toString(),
+        messageId: savedMessage.id,
         chatId: messageData.chatId,
-        senderId: message.sender._id.toString(),
-        senderName: message.sender.name,
+        senderId: messageData.senderId,
+        senderName: messageData.senderName || '',
         content: messageData.content,
-        isGroupChat: message.chat.isGroupChat,
-        chatName: message.chat.chatName || '',
-        users: message.chat.users.map(u => u._id.toString()),
+        isGroupChat: messageData.isGroupChat || false,
+        chatName: messageData.chatName || '',
+        users: users.map(u => u._id || u.id),
         timestamp: new Date().toISOString(),
         requestId: messageData.requestId
       });
@@ -300,4 +314,3 @@ class KafkaService {
 const kafkaService = new KafkaService();
 
 module.exports = kafkaService;
-

@@ -44,7 +44,7 @@ resource "aws_security_group" "nlb" {
   ingress {
     description     = "Microservices ports from ALB"
     from_port       = 5001
-    to_port         = 5006
+    to_port         = 5007
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id]
   }
@@ -72,7 +72,7 @@ resource "aws_security_group" "microservices" {
   ingress {
     description     = "Microservices ports from NLB"
     from_port       = 5001
-    to_port         = 5006
+    to_port         = 5007
     protocol        = "tcp"
     security_groups = [aws_security_group.nlb.id]
   }
@@ -81,9 +81,27 @@ resource "aws_security_group" "microservices" {
   ingress {
     description     = "Inter-service communication"
     from_port       = 5001
-    to_port         = 5006
+    to_port         = 5007
     protocol        = "tcp"
     security_groups = [aws_security_group.microservices.id]
+  }
+
+  # Allow WebSocket gateway from ALB (for direct WebSocket connections)
+  ingress {
+    description     = "WebSocket gateway from ALB"
+    from_port       = 5007
+    to_port         = 5007
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+  }
+
+  # Allow OpenSearch/Elasticsearch access
+  egress {
+    description     = "OpenSearch/Elasticsearch"
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = [aws_security_group.opensearch.id]
   }
 
   # Allow Prometheus scraping
@@ -95,7 +113,16 @@ resource "aws_security_group" "microservices" {
     cidr_blocks = [var.vpc_cidr]
   }
 
-  # Outbound to DocumentDB
+  # Outbound to RDS PostgreSQL
+  egress {
+    description     = "PostgreSQL"
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.rds.id]
+  }
+
+  # Outbound to DocumentDB (for backward compatibility)
   egress {
     description     = "MongoDB/DocumentDB"
     from_port       = 27017
@@ -120,6 +147,15 @@ resource "aws_security_group" "microservices" {
     to_port         = 9096
     protocol        = "tcp"
     security_groups = [aws_security_group.msk.id]
+  }
+
+  # Outbound to Cassandra (Keyspaces) via HTTPS
+  egress {
+    description = "Cassandra Keyspaces"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   # Outbound HTTPS for external APIs
@@ -285,7 +321,57 @@ output "msk_sg_id" {
   value = aws_security_group.msk.id
 }
 
+# RDS PostgreSQL Security Group
+resource "aws_security_group" "rds" {
+  name        = "${var.project_name}-${var.environment}-rds-sg"
+  description = "Security group for RDS PostgreSQL"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    description     = "PostgreSQL from microservices"
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.microservices.id]
+  }
+
+  egress {
+    description = "No outbound traffic"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = []
+  }
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-rds-sg"
+  }
+}
+
+# Outputs
 output "monitoring_sg_id" {
   value = aws_security_group.monitoring.id
+}
+
+output "rds_sg_id" {
+  value = aws_security_group.rds.id
+}
+
+# OpenSearch Security Group
+resource "aws_security_group" "opensearch" {
+  name        = "${var.project_name}-${var.environment}-opensearch-sg"
+  description = "Security group for OpenSearch (managed by opensearch module)"
+  vpc_id      = var.vpc_id
+
+  # This will be managed by the opensearch module, but we create it here for reference
+  # The actual rules are in the opensearch module
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-opensearch-sg"
+  }
+}
+
+output "opensearch_sg_id" {
+  value = aws_security_group.opensearch.id
 }
 

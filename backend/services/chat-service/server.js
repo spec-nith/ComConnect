@@ -24,7 +24,7 @@ if (!envLoaded) {
   console.warn('⚠️ No .env file found');
 }
 
-const Connection = require("./config/db");
+const Connection = require("./config/cassandra");
 const { notFound, errorHandler } = require("./middleware/errorMiddleware");
 const requestIdMiddleware = require("./shared/middleware/requestId");
 const { apiLimiter } = require("./shared/middleware/rateLimiter");
@@ -35,7 +35,6 @@ const { initializeTracing, tracingMiddleware } = require("./shared/middleware/tr
 const redisService = require("./services/redisService");
 const kafkaService = require("./services/kafkaService");
 const chatRoutes = require("./routes/chatRoutes");
-const mongoose = require("mongoose");
 
 const app = express();
 
@@ -100,24 +99,8 @@ app.use(errorHandler);
 // Connect to database, Redis, Kafka and start server
 const startServer = async () => {
   try {
-    console.log('📡 Chat Service: Attempting to connect to MongoDB...');
+    console.log('📡 Chat Service: Attempting to connect to Cassandra...');
     await Connection();
-    
-    // Ensure Message model is registered after DB connection
-    // This is needed because Chat model references Message in latestMessage field
-    if (!mongoose.models.Message) {
-      const messageSchema = mongoose.Schema(
-        {
-          sender: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-          content: { type: String, trim: true },
-          chat: { type: mongoose.Schema.Types.ObjectId, ref: "Chat" },
-          readBy: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
-        },
-        { timestamps: true }
-      );
-      mongoose.model("Message", messageSchema);
-      console.log('✅ Message model registered');
-    }
     
     // Test Redis connection
     console.log('📡 Chat Service: Testing Redis connection...');

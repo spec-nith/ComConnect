@@ -24,7 +24,7 @@ if (!envLoaded) {
   console.warn('⚠️ No .env file found');
 }
 
-const Connection = require("./config/db");
+const Connection = require("./config/cassandra");
 const { notFound, errorHandler } = require("./middleware/errorMiddleware");
 const requestIdMiddleware = require("./shared/middleware/requestId");
 const { apiLimiter } = require("./shared/middleware/rateLimiter");
@@ -99,7 +99,7 @@ app.use(errorHandler);
 // Connect to database and start server with Socket.IO
 const startServer = async () => {
   try {
-    console.log('📡 Message Service: Attempting to connect to MongoDB...');
+    console.log('📡 Message Service: Attempting to connect to Cassandra...');
     await Connection();
     
     // Test Redis connection
@@ -114,6 +114,16 @@ const startServer = async () => {
     // Initialize Kafka
     console.log('📡 Message Service: Initializing Kafka...');
     await kafkaService.initialize();
+    
+    // Initialize Elasticsearch
+    try {
+      console.log('📡 Message Service: Initializing Elasticsearch...');
+      const elasticsearchService = require('../shared/services/elasticsearchService');
+      await elasticsearchService.initialize();
+      console.log('✅ Elasticsearch initialized (Message Service)');
+    } catch (error) {
+      console.warn('⚠️ Elasticsearch initialization failed, continuing without Elasticsearch:', error.message);
+    }
     
     const PORT = process.env.MESSAGE_SERVICE_PORT || 5003;
     const server = app.listen(PORT, '0.0.0.0', () => {

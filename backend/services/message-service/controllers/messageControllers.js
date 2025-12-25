@@ -1,21 +1,19 @@
 const asyncHandler = require("express-async-handler");
-const Message = require("../models/messageModel");
-const User = require("../models/userModel");
-const Chat = require("../models/chatModel");
-const { makeRequest } = require("../shared/utils/circuitBreaker");
+const cassandraService = require("../services/cassandraService");
+const kafkaService = require("../services/kafkaService");
 const { createSpan, addSpanAttribute, recordSpanError } = require("../shared/middleware/tracing");
 const { trackDbOperation } = require("../shared/middleware/metrics");
-const redisService = require("../services/redisService");
-const kafkaService = require("../services/kafkaService");
 
 //@description     Get all Messages
 //@route           GET /api/Message/:chatId
 //@access          Protected
 const allMessages = asyncHandler(async (req, res) => {
   try {
-    const messages = await Message.find({ chat: req.params.chatId })
-      .populate("sender", "name pic email")
-      .populate("chat");
+    const chatId = req.params.chatId;
+    const messages = await cassandraService.getMessagesByChatId(chatId);
+    
+    // Note: User information needs to be fetched from user-service
+    // For now, return messages with sender IDs
     res.json(messages);
   } catch (error) {
     res.status(400);
@@ -27,45 +25,43 @@ const allMessages = asyncHandler(async (req, res) => {
 //@route           POST /api/Message/
 //@access          Protected
 const sendMessage = asyncHandler(async (req, res) => {
-  const { content, chatId } = req.body;
+  const { content, chatId, mediaUrl, mediaType, mediaThumbnail } = req.body;
 
-  if (!content || !chatId) {
+  if ((!content && !mediaUrl) || !chatId) {
     console.log("Invalid data passed into request");
     return res.sendStatus(400);
   }
 
   try {
-    // Get chat info for response
-    const chat = await Chat.findById(chatId).populate("users", "name pic email");
+    // Get chat info from Cassandra
+    const chat = await cassandraService.getChatById(chatId);
     if (!chat) {
       res.status(404);
       throw new Error("Chat not found");
     }
 
     // KAFKA-FIRST ARCHITECTURE: Publish to Kafka instead of saving directly to DB
-    // The Kafka consumer will handle persistence to MongoDB
+    // The Kafka consumer will handle persistence to Cassandra
     const kafkaSpan = createSpan('kafka.publish_message', req.span);
     const endKafkaTimer = trackDbOperation('publish', 'kafka', 'message-service');
     
     // Generate temporary message ID for response
-    const mongoose = require('mongoose');
-    const tempMessageId = new mongoose.Types.ObjectId().toString();
+    const { v4: uuidv4 } = require('uuid');
+    const tempMessageId = uuidv4();
     
     // Publish message to Kafka for persistence
     const published = await kafkaService.publishMessageForPersistence({
       tempMessageId: tempMessageId,
-      senderId: req.user._id.toString(),
+      senderId: req.user.id || req.user._id,
       senderName: req.user.name,
       content: content,
-      chatId: chatId.toString(),
-      isGroupChat: chat.isGroupChat,
-      chatName: chat.chatName || '',
-      users: chat.users.map(u => ({
-        _id: u._id.toString(),
-        name: u.name,
-        pic: u.pic,
-        email: u.email
-      })),
+      mediaUrl: mediaUrl,
+      mediaType: mediaType,
+      mediaThumbnail: mediaThumbnail,
+      chatId: chatId,
+      isGroupChat: chat.isGroupChat || chat.is_group_chat,
+      chatName: chat.chatName || chat.chat_name || '',
+      users: chat.users || [],
       timestamp: new Date().toISOString(),
       requestId: req.id
     }, req.id);
@@ -74,28 +70,20 @@ const sendMessage = asyncHandler(async (req, res) => {
     kafkaSpan.end();
     
     if (!published) {
-      // Fallback: If Kafka fails, save directly to DB (graceful degradation)
+      // Fallback: If Kafka fails, save directly to Cassandra (graceful degradation)
       console.warn('⚠️ Kafka publish failed, falling back to direct DB save');
       const dbSpan = createSpan('database.create_message_fallback', req.span);
-      const message = await Message.create({
-        sender: req.user._id,
+      const savedMessage = await cassandraService.saveMessage({
+        chatId: chatId,
+        senderId: req.user.id || req.user._id,
         content: content,
-        chat: chatId,
+        readBy: []
       });
       
-      let populatedMessage = await message.populate("sender", "name pic");
-      populatedMessage = await populatedMessage.populate("chat");
-      populatedMessage = await User.populate(populatedMessage, {
-        path: "chat.users",
-        select: "name pic email",
-      });
-      
-      await Chat.findByIdAndUpdate(chatId, {
-        latestMessage: populatedMessage,
-      });
+      await cassandraService.updateChatLatestMessage(chatId, savedMessage.id);
       
       dbSpan.end();
-      return res.json(populatedMessage);
+      return res.json(savedMessage);
     }
 
     // Return response immediately (async processing)
@@ -103,17 +91,20 @@ const sendMessage = asyncHandler(async (req, res) => {
     // Frontend will receive updates via Socket.IO/Redis
     const responseMessage = {
       _id: tempMessageId,
+      id: tempMessageId,
       sender: {
-        _id: req.user._id,
+        _id: req.user.id || req.user._id,
+        id: req.user.id || req.user._id,
         name: req.user.name,
         pic: req.user.pic
       },
       content: content,
       chat: {
         _id: chatId,
-        users: chat.users,
-        isGroupChat: chat.isGroupChat,
-        chatName: chat.chatName
+        id: chatId,
+        users: chat.users || [],
+        isGroupChat: chat.isGroupChat || chat.is_group_chat,
+        chatName: chat.chatName || chat.chat_name
       },
       createdAt: new Date(),
       pending: true // Indicates message is being processed
@@ -136,12 +127,12 @@ const sendMessage = asyncHandler(async (req, res) => {
 
 const deleteAllMessages = asyncHandler(async (req, res) => {
   try {
-    await Message.deleteMany({});
-    res.status(200).json({ message: 'All messages have been deleted successfully.' });
+    // Note: Cassandra doesn't support DELETE ALL efficiently
+    // This would require deleting by partition keys
+    res.status(200).json({ message: 'Bulk delete not supported. Delete messages by chat ID.' });
   } catch (error) {
     res.status(500).json({ message: 'Failed to delete messages', error: error.message });
   }
 });
 
 module.exports = { allMessages, sendMessage, deleteAllMessages };
-

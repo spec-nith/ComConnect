@@ -3,25 +3,23 @@ import io from 'socket.io-client';
 import { API_URL } from "../config/api.config";
 
 // Determine Socket URL based on environment
-// Use API Gateway for all Socket.IO connections
+// Use dedicated WebSocket Gateway for production-level architecture
 const getSocketURL = () => {
-  // Use API Gateway URL (port 8080) for Socket.IO
-  // Remove /api from API_URL to get base URL
-  const baseURL = API_URL.replace('/api', '');
-  
-  // If API_URL is already the gateway, use it directly
-  // Otherwise, construct gateway URL
-  if (baseURL.includes(':8080') || baseURL.includes('api-gateway')) {
-    return baseURL;
+  // Use WebSocket Gateway URL directly (port 5007)
+  // This is the production-level approach - separate WebSocket gateway
+  if (process.env.REACT_APP_SOCKET_URL) {
+    return process.env.REACT_APP_SOCKET_URL;
   }
   
-  // Fallback: construct gateway URL
-  if (process.env.NODE_ENV === 'development' && !process.env.REACT_APP_USE_PROD_API) {
-    // In development, use API Gateway
-    return process.env.REACT_APP_SOCKET_URL || 'http://localhost:8080';
+  // Fallback: construct WebSocket gateway URL
+  if (process.env.NODE_ENV === 'development') {
+    // In development, use WebSocket gateway directly
+    return 'http://localhost:5007';
   } else {
-    // In production, use the API URL base (should be gateway)
-    return baseURL;
+    // In production, construct from API URL base
+    const baseURL = API_URL.replace('/api', '');
+    // Replace API gateway port with WebSocket gateway port
+    return baseURL.replace(':8080', ':5007').replace('api-gateway', 'websocket-gateway');
   }
 };
 

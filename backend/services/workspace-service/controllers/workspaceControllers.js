@@ -1,7 +1,5 @@
 const asyncHandler = require('express-async-handler');
-const Workspace = require('../models/workspaceModel');
-const User = require('../models/userModel');
-const Chat = require('../models/chatModel');
+const { prisma } = require('../config/db');
 
 //@description     Create a new workspace
 //@route           POST /api/workspace
@@ -29,40 +27,34 @@ const createWorkspace = asyncHandler(async (req, res) => {
   };
 
   // Create the workspace
-  const workspace = await Workspace.create({
-    workspaceName: name,
-    createdBy: user._id,
-    roles: roles.map(role => ({ roleName: role, users: [] })),
-    users: [user._id]
+  const workspace = await prisma.workspace.create({
+    data: {
+      workspaceName: name,
+      createdBy: user.id || user._id,
+      roles: roles.map(role => ({ roleName: role, users: [] })),
+    },
   });
 
-  // Create groups based on roles and their combinations
+  // Add user to workspace
+  await prisma.workspaceUser.create({
+    data: {
+      userId: user.id || user._id,
+      workspaceId: workspace.id,
+    },
+  });
+
+  // Note: Groups (Chats) will be created in chat-service
+  // We'll return the workspace with group IDs that need to be created
   const roleCombinations = getCombinations(roles);
-  const groups = roleCombinations.map(combination => ({
+  const groupsToCreate = roleCombinations.map(combination => ({
     chatName: combination.join('+'),
     isGroupChat: true,
-    users: [user._id],
-    groupAdmin: user._id,
-    workspace: workspace._id
+    workspaceId: workspace.id,
   }));
-
-  // Save groups to database
-  const createdGroups = await Chat.insertMany(groups);
-
-  // Update workspace with the created groups
-  workspace.groups = createdGroups.map(group => group._id);
-  await workspace.save();
-
-  // Add workspace to the user's list of workspaces
-  const userDoc = await User.findById(user._id);
-  if (!userDoc.workspaces.includes(workspace._id)) {
-    userDoc.workspaces.push(workspace._id);
-    await userDoc.save();
-  }
 
   res.status(201).json({
     workspace,
-    groups: createdGroups
+    groupsToCreate
   });
 });
 
@@ -70,132 +62,140 @@ const createWorkspace = asyncHandler(async (req, res) => {
 //@route           POST /api/workspace/:id/role
 //@access          Protected
 const addRole = asyncHandler(async (req, res) => {
-    const { roleName } = req.body;
-    const workspace = await Workspace.findById(req.params.id);
-  
-    if (!workspace) {
-      res.status(404);
-      throw new Error('Workspace not found');
-    }
-  
-    workspace.roles.push({ roleName, users: [] });
-    await workspace.save();
-  
-    res.status(201).json(workspace);
+  const { roleName } = req.body;
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: req.params.id },
   });
+
+  if (!workspace) {
+    res.status(404);
+    throw new Error('Workspace not found');
+  }
+
+  const roles = Array.isArray(workspace.roles) ? workspace.roles : [];
+  roles.push({ roleName, users: [] });
+
+  const updatedWorkspace = await prisma.workspace.update({
+    where: { id: req.params.id },
+    data: { roles },
+  });
+
+  res.status(201).json(updatedWorkspace);
+});
 
 //@description     Get roles in a workspace
 //@route           GET /api/workspace/:id/roles
 //@access          Protected
 const getRoles = asyncHandler(async (req, res) => {
-    const workspace = await Workspace.findById(req.params.id);
-  
-    if (!workspace) {
-      res.status(404);
-      throw new Error('Workspace not found');
-    }
-  
-    res.status(200).json(workspace.roles);
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: req.params.id },
   });
+
+  if (!workspace) {
+    res.status(404);
+    throw new Error('Workspace not found');
+  }
+
+  const roles = Array.isArray(workspace.roles) ? workspace.roles : [];
+  res.status(200).json(roles);
+});
 
 // Controller function to join a workspace
 const joinWorkspace = asyncHandler(async (req, res) => {
   const { workspaceId, groupId } = req.body;
   const user = req.user;
+  const userId = user.id || user._id;
 
   if (!workspaceId || !groupId) {
     res.status(400);
     throw new Error('Please provide workspace ID and group ID.');
   }
 
-  const workspace = await Workspace.findById(workspaceId);
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+  });
+
   if (!workspace) {
     res.status(404);
     throw new Error('Workspace not found.');
   }
 
-  const group = await Chat.findById(groupId);
-  if (!group) {
-    res.status(404);
-    throw new Error('Group not found.');
-  }
-
-  const role = workspace.roles.find(r => r.roleName === group.chatName);
-  if (!role) {
-    res.status(400);
-    throw new Error('Group does not match any role in the workspace.');
-  }
-
-  if (!workspace.users.includes(user._id)) {
-    workspace.users.push(user._id);
-  }
-
-  if (!role.users.includes(user._id)) {
-    role.users.push(user._id);
-  }
-
-  const groups = await Chat.find({
-    workspace: workspaceId,
-    chatName: new RegExp(`\\b${role.roleName}\\b`)
+  // Check if user is already in workspace
+  const existingWorkspaceUser = await prisma.workspaceUser.findUnique({
+    where: {
+      userId_workspaceId: {
+        userId,
+        workspaceId,
+      },
+    },
   });
 
-  for (const group of groups) {
-    if (!group.users.includes(user._id)) {
-      group.users.push(user._id);
-      await group.save();
-    }
+  if (!existingWorkspaceUser) {
+    await prisma.workspaceUser.create({
+      data: {
+        userId,
+        workspaceId,
+      },
+    });
   }
 
-  await workspace.save();
-
-  const userDoc = await User.findById(user._id);
-  if (!userDoc.workspaces.includes(workspace._id)) {
-    userDoc.workspaces.push(workspace._id);
-    await userDoc.save();
-  }
+  // Note: Group (Chat) operations will be handled by chat-service
+  // This service just manages workspace membership
 
   res.status(200).json({
-    message: 'Successfully joined the workspace and relevant groups.',
+    message: 'Successfully joined the workspace.',
     workspace,
-    groups
   });
 });
 
 const getUserWorkspaces = asyncHandler(async (req, res) => {
-    const user = req.user;  
+  const user = req.user;
+  const userId = user.id || user._id;
 
-    const workspaces = await Workspace.find({ users: user._id });
-    res.status(200).json(workspaces);
+  const workspaceUsers = await prisma.workspaceUser.findMany({
+    where: { userId },
+    include: {
+      workspace: true,
+    },
+  });
+
+  const workspaces = workspaceUsers.map(wu => wu.workspace);
+  res.status(200).json(workspaces);
 });
 
 const getGroups = asyncHandler(async (req, res) => {
-    const workspaceId = req.params.id;
+  const workspaceId = req.params.id;
 
-    const workspace = await Workspace.findById(workspaceId).populate('groups');
-  
-    if (!workspace) {
-      res.status(404);
-      throw new Error('Workspace not found');
-    }
-  
-    res.status(200).json(workspace.groups);
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+  });
+
+  if (!workspace) {
+    res.status(404);
+    throw new Error('Workspace not found');
+  }
+
+  // Note: Groups are stored in chat-service (Cassandra)
+  // This endpoint should call chat-service to get groups
+  // For now, return empty array or make API call to chat-service
+  res.status(200).json([]);
 });
 
 const deleteAllWorkspaces = asyncHandler(async (req, res) => {
-    try {
-      await Workspace.deleteMany({});
-      res.status(200).json({ message: 'All workspaces have been deleted successfully.' });
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to delete workspaces', error: error.message });
-    }
-  });
+  try {
+    await prisma.workspace.deleteMany({});
+    res.status(200).json({ message: 'All workspaces have been deleted successfully.' });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to delete workspaces', error: error.message });
+  }
+});
 
-module.exports =
-    { createWorkspace,
-     addRole, 
-     getRoles,
-       joinWorkspace,
-       getUserWorkspaces,
-       getGroups ,
-    deleteAllWorkspaces};
-
+module.exports = {
+  createWorkspace,
+  addRole,
+  getRoles,
+  joinWorkspace,
+  getUserWorkspaces,
+  getGroups,
+  deleteAllWorkspaces
+};

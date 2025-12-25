@@ -18,6 +18,9 @@ COPY user-service/ .
 # Copy shared directory
 COPY shared /app/shared
 
+# Generate Prisma client
+RUN npx prisma generate
+
 EXPOSE 5001
 
 CMD ["npm", "run", "dev"]

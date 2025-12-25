@@ -1,0 +1,16 @@
+# Exclude node_modules from all services
+**/node_modules
+**/npm-debug.log
+**/.env
+**/*.log
+**/.git
+**/.gitignore
+**/coverage
+**/.nyc_output
+**/dist
+**/build
+**/.DS_Store
+**/Thumbs.db
+
+
+

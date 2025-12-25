@@ -1,5 +1,5 @@
 const jwt = require("jsonwebtoken");
-const User = require("../models/userModel.js");
+const { prisma } = require("../config/db");
 const asyncHandler = require("express-async-handler");
 
 const protect = asyncHandler(async (req, res, next) => {
@@ -15,7 +15,28 @@ const protect = asyncHandler(async (req, res, next) => {
       //decodes token id
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-      req.user = await User.findById(decoded.id).select("-password");
+      const user = await prisma.user.findUnique({
+        where: { id: decoded.id },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          pic: true,
+          isAdmin: true,
+          fcmToken: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      if (!user) {
+        res.status(401);
+        throw new Error("User not found");
+      }
+
+      req.user = user;
+      // For compatibility with existing code that uses _id
+      req.user._id = user.id;
 
       next();
     } catch (error) {
@@ -31,4 +52,3 @@ const protect = asyncHandler(async (req, res, next) => {
 });
 
 module.exports = { protect };
-

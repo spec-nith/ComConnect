@@ -57,3 +57,9 @@ variable "desired_capacity" {
   default     = 3
 }
 
+variable "websocket_target_group_arn" {
+  description = "ALB target group ARN for WebSocket gateway"
+  type        = string
+  default     = ""
+}
+

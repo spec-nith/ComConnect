@@ -9,7 +9,7 @@ services:
     #   - "2181:2181"
     networks:
       - app_network
-    restart: unless-stopped
+    restart: on-failure
     deploy:
       resources:
         limits:
@@ -37,7 +37,7 @@ services:
     #   - "29092:29092"
     networks:
       - app_network
-    restart: unless-stopped
+    restart: on-failure
     deploy:
       resources:
         limits:
@@ -47,11 +47,65 @@ services:
           cpus: '0.5'
           memory: 512M
 
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-admin}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-admin123}
+      - POSTGRES_DB=${POSTGRES_DB:-comconnect}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d comconnect"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - app_network
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+
+  # Cassandra Database
+  cassandra:
+    image: cassandra:4.1
+    environment:
+      - CASSANDRA_CLUSTER_NAME=ComConnectCluster
+      - CASSANDRA_DC=datacenter1
+      - CASSANDRA_RACK=rack1
+      - MAX_HEAP_SIZE=1G
+      - HEAP_NEWSIZE=256M
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "nodetool status | grep -q UN"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - app_network
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+
+  # MongoDB - Kept for task-service and notification-service
   mongodb:
     image: mongo:7
-    # Port mapping removed - services access MongoDB via Docker network
-    # ports:
-    #   - "27017:27017"
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${DB_USERNAME:-admin}
       - MONGO_INITDB_ROOT_PASSWORD=${DB_PASSWORD:-admin123}
@@ -66,7 +120,7 @@ services:
       start_period: 30s
     networks:
       - app_network
-    restart: unless-stopped
+    restart: on-failure
     deploy:
       resources:
         limits:
@@ -89,7 +143,62 @@ services:
       retries: 5
     networks:
       - app_network
-    restart: unless-stopped
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # Elasticsearch - Search and Analytics
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - app_network
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Kibana - Elasticsearch UI (Optional but recommended)
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - SERVER_NAME=kibana
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - app_network
+    restart: on-failure
     deploy:
       resources:
         limits:
@@ -121,7 +230,9 @@ services:
         condition: service_healthy
       notification-service:
         condition: service_healthy
-    restart: unless-stopped
+      websocket-gateway:
+        condition: service_healthy
+    restart: on-failure
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/health"]
       interval: 30s
@@ -137,6 +248,50 @@ services:
           cpus: '0.25'
           memory: 128M
 
+  # WebSocket Gateway - Port 5007
+  websocket-gateway:
+    build:
+      context: ./backend/services
+      dockerfile: websocket-gateway/Dockerfile
+    ports:
+      - "5007:5007"
+    networks:
+      - app_network
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - WEBSOCKET_GATEWAY_PORT=5007
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
+      - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-this-in-production}
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - MESSAGE_SERVICE_URL=http://message-service:5003
+      - USER_MANAGEMENT_SERVICE_URL=http://user-management-service:5009
+      - JAEGER_ENDPOINT=${JAEGER_ENDPOINT:-http://jaeger:4318/v1/traces}
+    volumes:
+      - ./backend/services/websocket-gateway:/app
+      - ./backend/services/shared:/app/shared
+      - /app/node_modules
+    depends_on:
+      redis:
+        condition: service_healthy
+      message-service:
+        condition: service_healthy
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5007/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.75'
+          memory: 768M
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
   # User Service - Port 5001
   user-service:
     build:
@@ -150,29 +305,30 @@ services:
       - NODE_ENV=${NODE_ENV:-development}
       - USER_SERVICE_PORT=5001
       - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
-      - MONGO_URI=${MONGO_URI}
-      - DB_USERNAME=${DB_USERNAME}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - JWT_SECRET=${JWT_SECRET}
+      - DATABASE_URL=postgresql://admin:admin123@postgres:5432/comconnect
+      - POSTGRES_USER=${POSTGRES_USER:-admin}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-admin123}
+      - POSTGRES_DB=${POSTGRES_DB:-comconnect}
+      - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-this-in-production}
     volumes:
       - ./backend/services/user-service:/app
       - ./backend/services/shared:/app/shared
       - /app/node_modules
       - ./.env:/app/.env
     depends_on:
-      mongodb:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
       kafka:
         condition: service_started
-    restart: unless-stopped
+    restart: on-failure
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5001/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 60s
     deploy:
       resources:
         limits:
@@ -195,9 +351,12 @@ services:
       - NODE_ENV=${NODE_ENV:-development}
       - CHAT_SERVICE_PORT=5002
       - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
-      - MONGO_URI=${MONGO_URI:-mongodb://admin:admin123@mongodb:27017/comconnect?authSource=admin}
-      - DB_USERNAME=${DB_USERNAME:-admin}
-      - DB_PASSWORD=${DB_PASSWORD:-admin123}
+      - CASSANDRA_CONTACT_POINTS=cassandra
+      - CASSANDRA_LOCAL_DATACENTER=datacenter1
+      - CASSANDRA_KEYSPACE=comconnect
+      - CASSANDRA_USERNAME=${CASSANDRA_USERNAME:-}
+      - CASSANDRA_PASSWORD=${CASSANDRA_PASSWORD:-}
+      - USER_SERVICE_URL=http://user-service:5001
       - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-this-in-production}
       - REDIS_HOST=${REDIS_HOST:-redis}
       - REDIS_PORT=${REDIS_PORT:-6379}
@@ -211,19 +370,21 @@ services:
       - ./backend/services/shared:/app/shared
       - /app/node_modules
     depends_on:
-      mongodb:
+      cassandra:
         condition: service_healthy
       redis:
         condition: service_healthy
       kafka:
         condition: service_started
-    restart: unless-stopped
+      user-service:
+        condition: service_healthy
+    restart: on-failure
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5002/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 90s
     deploy:
       resources:
         limits:
@@ -246,9 +407,11 @@ services:
       - NODE_ENV=${NODE_ENV:-development}
       - MESSAGE_SERVICE_PORT=5003
       - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
-      - MONGO_URI=${MONGO_URI:-mongodb://admin:admin123@mongodb:27017/comconnect?authSource=admin}
-      - DB_USERNAME=${DB_USERNAME:-admin}
-      - DB_PASSWORD=${DB_PASSWORD:-admin123}
+      - CASSANDRA_CONTACT_POINTS=cassandra
+      - CASSANDRA_LOCAL_DATACENTER=datacenter1
+      - CASSANDRA_KEYSPACE=comconnect
+      - CASSANDRA_USERNAME=${CASSANDRA_USERNAME:-}
+      - CASSANDRA_PASSWORD=${CASSANDRA_PASSWORD:-}
       - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-this-in-production}
       - NOTIFICATION_SERVICE_URL=http://notification-service:5006
       - REDIS_HOST=${REDIS_HOST:-redis}
@@ -263,7 +426,7 @@ services:
       - ./backend/services/shared:/app/shared
       - /app/node_modules
     depends_on:
-      mongodb:
+      cassandra:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -271,13 +434,13 @@ services:
         condition: service_started
       notification-service:
         condition: service_healthy
-    restart: unless-stopped
+    restart: on-failure
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5003/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 90s
     deploy:
       resources:
         limits:
@@ -300,9 +463,10 @@ services:
       - NODE_ENV=${NODE_ENV:-development}
       - WORKSPACE_SERVICE_PORT=5004
       - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
-      - MONGO_URI=${MONGO_URI:-mongodb://admin:admin123@mongodb:27017/comconnect?authSource=admin}
-      - DB_USERNAME=${DB_USERNAME:-admin}
-      - DB_PASSWORD=${DB_PASSWORD:-admin123}
+      - DATABASE_URL=postgresql://admin:admin123@postgres:5432/comconnect
+      - POSTGRES_USER=${POSTGRES_USER:-admin}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-admin123}
+      - POSTGRES_DB=${POSTGRES_DB:-comconnect}
       - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-this-in-production}
       - REDIS_HOST=${REDIS_HOST:-redis}
       - REDIS_PORT=${REDIS_PORT:-6379}
@@ -312,19 +476,19 @@ services:
       - ./backend/services/shared:/app/shared
       - /app/node_modules
     depends_on:
-      mongodb:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
       kafka:
         condition: service_started
-    restart: unless-stopped
+    restart: on-failure
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5004/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 60s
     deploy:
       resources:
         limits:
@@ -365,7 +529,7 @@ services:
         condition: service_healthy
       kafka:
         condition: service_started
-    restart: unless-stopped
+    restart: on-failure
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5005/health"]
       interval: 30s
@@ -414,7 +578,7 @@ services:
         condition: service_started
       redis:
         condition: service_healthy
-    restart: unless-stopped
+    restart: on-failure
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5006/health"]
       interval: 30s
@@ -429,6 +593,93 @@ services:
         reservations:
           cpus: '0.5'
           memory: 512M
+
+  # Media Upload Service - Port 5008
+  media-upload-service:
+    build:
+      context: ./backend/services
+      dockerfile: media-upload-service/Dockerfile
+    ports:
+      - "5008:5008"
+    networks:
+      - app_network
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - MEDIA_UPLOAD_SERVICE_PORT=5008
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_S3_BUCKET_NAME=${AWS_S3_BUCKET_NAME:-comconnect-media}
+      - CDN_DOMAIN=${CDN_DOMAIN:-}
+      - AWS_CLOUDFRONT_DOMAIN=${AWS_CLOUDFRONT_DOMAIN:-}
+      - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-this-in-production}
+      - JAEGER_ENDPOINT=${JAEGER_ENDPOINT:-http://jaeger:4318/v1/traces}
+    volumes:
+      - ./backend/services/media-upload-service:/app
+      - ./backend/services/shared:/app/shared
+      - /app/node_modules
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.75'
+          memory: 768M
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # User Management Service - Port 5009
+  user-management-service:
+    build:
+      context: ./backend/services
+      dockerfile: user-management-service/Dockerfile
+    ports:
+      - "5009:5009"
+    networks:
+      - app_network
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - USER_MANAGEMENT_SERVICE_PORT=5009
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - USER_SERVICE_URL=http://user-service:5001
+      - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-this-in-production}
+      - JAEGER_ENDPOINT=${JAEGER_ENDPOINT:-http://jaeger:4318/v1/traces}
+    volumes:
+      - ./backend/services/user-management-service:/app
+      - ./backend/services/shared:/app/shared
+      - /app/node_modules
+    depends_on:
+      redis:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5009/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   # Prometheus - Metrics Collection
   prometheus:
@@ -445,7 +696,7 @@ services:
       - '--web.console.templates=/usr/share/prometheus/consoles'
     networks:
       - app_network
-    restart: unless-stopped
+    restart: on-failure
     deploy:
       resources:
         limits:
@@ -471,7 +722,7 @@ services:
       - prometheus
     networks:
       - app_network
-    restart: unless-stopped
+    restart: on-failure
     deploy:
       resources:
         limits:
@@ -496,7 +747,7 @@ services:
       - COLLECTOR_OTLP_ENABLED=true
     networks:
       - app_network
-    restart: unless-stopped
+    restart: on-failure
     deploy:
       resources:
         limits:
@@ -519,7 +770,7 @@ services:
       - app_network
     environment:
       - REACT_APP_API_URL=http://localhost:8080/api
-      - REACT_APP_SOCKET_URL=http://localhost:8080
+      - REACT_APP_SOCKET_URL=http://localhost:5007
       - CHOKIDAR_USEPOLLING=true
       - WATCHPACK_POLLING=true
     volumes:
@@ -530,7 +781,10 @@ services:
 volumes:
   prometheus_data:
   grafana_data:
+  postgres_data:
+  cassandra_data:
   mongodb_data:
+  elasticsearch_data:
 
 networks:
   app_network:

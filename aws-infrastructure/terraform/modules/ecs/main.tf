@@ -132,6 +132,21 @@ locals {
       cpu  = 512
       memory = 1024
     }
+    websocket-gateway = {
+      port = 5007
+      cpu  = 512
+      memory = 768
+    }
+    media-upload-service = {
+      port = 5008
+      cpu  = 512
+      memory = 768
+    }
+    user-management-service = {
+      port = 5009
+      cpu  = 256
+      memory = 512
+    }
   }
 }
 
@@ -151,13 +166,27 @@ resource "aws_ecs_service" "microservices" {
     assign_public_ip = false
   }
 
-  load_balancer {
-    target_group_arn = aws_lb_target_group.microservices[each.key].arn
-    container_name   = each.key
-    container_port   = each.value.port
+  # WebSocket gateway uses ALB target group, others use NLB
+  dynamic "load_balancer" {
+    for_each = each.key == "websocket-gateway" && var.websocket_target_group_arn != "" ? [1] : []
+    content {
+      target_group_arn = var.websocket_target_group_arn
+      container_name   = each.key
+      container_port   = each.value.port
+    }
   }
 
-  depends_on = [aws_lb_listener.nlb]
+  # Regular services use NLB
+  dynamic "load_balancer" {
+    for_each = each.key != "websocket-gateway" ? [1] : []
+    content {
+      target_group_arn = aws_lb_target_group.microservices[each.key].arn
+      container_name   = each.key
+      container_port   = each.value.port
+    }
+  }
+
+  depends_on = each.key == "websocket-gateway" ? [] : [aws_lb_listener.nlb]
 
   tags = {
     Name = "${var.project_name}-${var.environment}-${each.key}"
@@ -207,9 +236,9 @@ resource "aws_ecs_task_definition" "microservices" {
   }])
 }
 
-# NLB Target Groups
+# NLB Target Groups (exclude WebSocket gateway - it uses ALB)
 resource "aws_lb_target_group" "microservices" {
-  for_each = local.services
+  for_each = { for k, v in local.services : k => v if k != "websocket-gateway" }
 
   name     = "${var.project_name}-${var.environment}-${each.key}-tg"
   port     = each.value.port

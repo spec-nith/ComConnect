@@ -1,37 +1,30 @@
-const mongoose = require("mongoose");
+const { PrismaClient } = require('@prisma/client');
+
+const prisma = new PrismaClient({
+  log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+});
 
 const Connection = async () => {
-    if (!process.env.MONGO_URI) {
-        throw new Error('MONGO_URI is not defined in environment variables');
-    }
-    if (!process.env.DB_USERNAME || !process.env.DB_PASSWORD) {
-        throw new Error('DB_USERNAME or DB_PASSWORD is not defined in environment variables');
-    }
-    
-    let mongoURI = process.env.MONGO_URI;
-    
-    // Replace placeholders if they exist
-    if (mongoURI.includes("<username>") && mongoURI.includes("<password>")) {
-        mongoURI = mongoURI
-            .replace("<username>", process.env.DB_USERNAME)
-            .replace("<password>", process.env.DB_PASSWORD);
-    }
+  if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL is not defined in environment variables');
+  }
 
-    const maskedURL = mongoURI.replace(/:([^@]+)@/, ':****@');
-    console.log('Attempting to connect with URL:', maskedURL);
-
-    try {
-        await mongoose.connect(mongoURI, {
-            serverSelectionTimeoutMS: 30000,
-            socketTimeoutMS: 60000,
-            maxPoolSize: 10
-        });
-        console.log('✅ Database Connected Successfully to MongoDB Atlas');
-    } catch (error) {
-        console.error('❌ Database Connection Error:', error.message);
-        throw error;
-    }
+  try {
+    // Test the connection
+    await prisma.$connect();
+    console.log('✅ Database Connected Successfully to PostgreSQL');
+    
+    return prisma;
+  } catch (error) {
+    console.error('❌ Database Connection Error:', error.message);
+    throw error;
+  }
 };
 
-module.exports = Connection;
+// Graceful shutdown
+process.on('beforeExit', async () => {
+  await prisma.$disconnect();
+});
 
+module.exports = Connection;
+module.exports.prisma = prisma;

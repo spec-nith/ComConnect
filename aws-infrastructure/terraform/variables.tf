@@ -57,3 +57,17 @@ variable "desired_capacity" {
   default     = 3
 }
 
+variable "db_password" {
+  description = "Database password for RDS PostgreSQL"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "opensearch_master_password" {
+  description = "Master user password for OpenSearch"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+

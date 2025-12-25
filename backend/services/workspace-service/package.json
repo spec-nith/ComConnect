@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon --trace-warnings server.js"
+    "dev": "prisma generate && nodemon --trace-warnings server.js"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.7.0",
@@ -14,18 +14,19 @@
     "@opentelemetry/resources": "^1.28.1",
     "@opentelemetry/sdk-node": "^0.26.0",
     "@opentelemetry/semantic-conventions": "^1.28.1",
+    "@prisma/client": "^5.7.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "express-async-handler": "^1.2.0",
     "express-rate-limit": "^7.1.5",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.4.1",
     "prom-client": "^15.1.0",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "nodemon": "^3.0.1",
+    "prisma": "^5.7.1"
   }
 }
 

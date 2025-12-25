@@ -104,7 +104,7 @@ app.use(errorHandler);
 let server;
 const startServer = async () => {
   try {
-    console.log('📡 User Service: Attempting to connect to MongoDB...');
+    console.log('📡 User Service: Attempting to connect to PostgreSQL...');
     await Connection();
     
     const PORT = process.env.USER_SERVICE_PORT || 5001;
