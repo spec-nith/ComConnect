@@ -15,7 +15,7 @@ import {
   MenuDivider,
 } from "@chakra-ui/react";
 import { getSender, getSenderFull } from "../config/ChatLogics";
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import axios from "axios";
 import { ArrowBackIcon } from "@chakra-ui/icons";
 import ProfileModal from "./miscellaneous/ProfileModal";
@@ -28,6 +28,7 @@ import { useDisclosure } from "@chakra-ui/react";
 import { API_URL } from "../config/api.config";
 import UserListItem from "./userAvatar/UserListItem";
 import socket from "../Context/SocketContext";
+import ChatSummaryButton from "./ai/ChatSummaryButton";
 
 const SingleChat = ({ fetchAgain, setFetchAgain }) => {
   const [messages, setMessages] = useState([]);
@@ -37,6 +38,7 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
   const [typing, setTyping] = useState(false);
   const [istyping, setIsTyping] = useState(false);
   const [pendingMessages, setPendingMessages] = useState([]);
+  const [peerPresence, setPeerPresence] = useState(null);
 
   // Use ref to track the currently selected chat for socket listeners
   const selectedChatCompareRef = useRef();
@@ -99,11 +101,8 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
     }
   };
 
-  const token = user.token;
-  console.log(token);
-
   // Search functionality
-  const handleSearch = async () => {
+  const handleSearch = useCallback(async () => {
     if (!search.trim()) {
       setSearchResult([]);
       return;
@@ -137,7 +136,7 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
       });
       setSearchLoading(false);
     }
-  };
+  }, [search, toast, user?.token]);
 
   // Auto-search when user types
   useEffect(() => {
@@ -150,7 +149,7 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
     } else if (!search) {
       setSearchResult([]);
     }
-  }, [search, isSearchOpen]);
+  }, [search, isSearchOpen, handleSearch]);
 
   const accessChat = async (userId) => {
     console.log(userId);
@@ -276,7 +275,8 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
       socket.connect();
     }
 
-    socket.emit("setup", user);
+    socket.auth = { token: user.token };
+    socket.emit("setup");
 
     const handleConnected = () => {
       console.log("Socket connected successfully");
@@ -306,6 +306,35 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
     selectedChatCompareRef.current = selectedChat;
     // eslint-disable-next-line
   }, [selectedChat]);
+
+  useEffect(() => {
+    if (!selectedChat || selectedChat.isGroupChat) {
+      setPeerPresence(null);
+      return undefined;
+    }
+
+    const peer = getSenderFull(user, selectedChat.users);
+    if (!peer?._id) return undefined;
+
+    const loadPresence = async () => {
+      try {
+        const { data } = await axios.get(
+          `${API_URL}/chat/presence/${peer._id}`,
+          { headers: { Authorization: `Bearer ${user.token}` } }
+        );
+        setPeerPresence(data);
+      } catch {
+        setPeerPresence(null);
+      }
+    };
+    const handlePresence = (state) => {
+      if (state.userId === peer._id) setPeerPresence(state);
+    };
+
+    loadPresence();
+    socket.on("presence changed", handlePresence);
+    return () => socket.off("presence changed", handlePresence);
+  }, [selectedChat, user]);
 
   useEffect(() => {
     const handleMessageReceived = (newMessageRecieved) => {
@@ -353,7 +382,7 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
       socket.off("message recieved", handleMessageReceived);
       console.log('🔇 Socket listener removed for "message recieved"');
     };
-  }, []); // Empty dependency array since we're using functional updates
+  }, [setFetchAgain, setNotification]);
 
   // Close search dropdown when clicking outside
   useEffect(() => {
@@ -411,22 +440,25 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
       {/* Chat area fills remaining space */}
       <Box flex={1} height="100vh">
         {selectedChat ? (
-          <Box d="flex" flexDir="column" bg="#0f1924" w="100%" height="100vh">
+          <Box d="flex" flexDir="column" bg="#101414" w="100%" height="100dvh">
             <Box
-              bg="#0b1219ff"
+              bg="#171c1b"
               display="flex"
               flexDirection="row"
               alignItems={"center"}
               width="100%"
               px={3}
-              py={3}
+              py={2}
               gap={3}
+              minH="64px"
+              borderBottom="1px solid #313b37"
             >
               <IconButton
                 d={{ base: "flex", md: "none" }}
-                bg={"#21364A"}
-                borderRadius={"12px"}
-                _hover={{ bg: "#2982db20" }}
+                bg="#202725"
+                borderRadius="6px"
+                border="1px solid #3a4541"
+                _hover={{ bg: "#2c3532" }}
                 icon={<ArrowBackIcon color="white" />}
                 onClick={() => setSelectedChat("")}
                 flexShrink={0}
@@ -436,8 +468,8 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
                 display="flex"
                 alignItems="center"
                 color="#fff"
-                fontSize={{ base: "28px", md: "30px" }}
-                fontFamily="Work sans"
+                fontSize={{ base: "17px", md: "18px" }}
+                fontWeight="700"
               >
                 {messages &&
                   (!selectedChat.isGroupChat ? (
@@ -445,7 +477,16 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
                       user={getSenderFull(user, selectedChat.users)}
                     >
                       <Box width="100%" cursor="pointer">
-                        {getSender(user, selectedChat.users)}
+                        <Text fontSize={{ base: "17px", md: "18px" }} fontWeight="700">
+                          {getSender(user, selectedChat.users)}
+                        </Text>
+                        <Text
+                          color={peerPresence?.online ? "#6ee7b7" : "#8f9d97"}
+                          fontSize="11px"
+                          fontWeight="500"
+                        >
+                          {peerPresence?.online ? "Online" : "Offline"}
+                        </Text>
                       </Box>
                     </ProfileModal>
                   ) : (
@@ -467,14 +508,18 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
                 gap={3}
               >
                 <Box display="flex" alignItems="center" gap={2}>
+                  {selectedChat.isGroupChat && (
+                    <ChatSummaryButton chatId={selectedChat._id} />
+                  )}
                   <Box position="relative">
                     {/* Search Button/Input - Expands when clicked */}
                     <Box
                       display="flex"
                       alignItems="center"
-                      bg={"#21364A"}
-                      borderRadius={"12px"}
-                      _hover={{ bg: "#2982db20" }}
+                      bg="#202725"
+                      borderRadius="6px"
+                      border="1px solid #3a4541"
+                      _hover={{ bg: "#2c3532" }}
                       transition="all 0.2s ease-in-out"
                       width={isSearchOpen ? "300px" : "auto"}
                       p={isSearchOpen ? "0px 0px" : "0"}
@@ -557,12 +602,12 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
                           top="calc(100% + 8px)"
                           right="0"
                           left="0"
-                          bg="#0F1924"
+                          bg="#171c1b"
                           boxShadow="lg"
                           borderRadius="md"
                           zIndex="1000"
                           border="1px solid"
-                          borderColor="#2982db20"
+                          borderColor="#313b37"
                           maxH="250px"
                           overflowY="auto"
                           p={2}
@@ -618,10 +663,11 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
 
                   <Button
                     p={3}
-                    bg={"#21364A"}
-                    borderRadius={"12px"}
+                    bg="#202725"
+                    borderRadius="6px"
+                    border="1px solid #3a4541"
                     onClick={onOpen}
-                    _hover={{ bg: "#2982db20" }}
+                    _hover={{ bg: "#2c3532" }}
                     title="Allocate New Task"
                   >
                     <svg
@@ -645,9 +691,10 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
                       display="flex"
                       alignItems="center"
                       alignContent={"center"}
-                      bg={"#21364A"}
+                      bg="#202725"
                       title="Notifications"
-                      _hover={{ bg: "#2982db20" }}
+                      border="1px solid #3a4541"
+                      _hover={{ bg: "#2c3532" }}
                     >
                       <Box>
                         <svg
@@ -658,8 +705,8 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
                           xmlns="http://www.w3.org/2000/svg"
                         >
                           <path
-                            fill-rule="evenodd"
-                            clip-rule="evenodd"
+                            fillRule="evenodd"
+                            clipRule="evenodd"
                             d="M15.3281 12.7453C14.8945 11.9984 14.25 9.88516 14.25 7.125C14.25 3.67322 11.4518 0.875 8 0.875C4.54822 0.875 1.75 3.67322 1.75 7.125C1.75 9.88594 1.10469 11.9984 0.671094 12.7453C0.445722 13.1318 0.444082 13.6092 0.666796 13.9973C0.889509 14.3853 1.30261 14.6247 1.75 14.625H4.93828C5.23556 16.0796 6.51529 17.1243 8 17.1243C9.48471 17.1243 10.7644 16.0796 11.0617 14.625H14.25C14.6972 14.6244 15.1101 14.3849 15.3326 13.9969C15.5551 13.609 15.5534 13.1317 15.3281 12.7453ZM8 15.875C7.20562 15.8748 6.49761 15.3739 6.23281 14.625H9.76719C9.50239 15.3739 8.79438 15.8748 8 15.875ZM1.75 13.375C2.35156 12.3406 3 9.94375 3 7.125C3 4.36358 5.23858 2.125 8 2.125C10.7614 2.125 13 4.36358 13 7.125C13 9.94141 13.6469 12.3383 14.25 13.375H1.75Z"
                             fill="white"
                           />
@@ -679,12 +726,12 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
                         )}
                       </Box>
                     </MenuButton>
-                    <MenuList border={"1px solid #2982db20"} bg={"#0F1924"}>
+                    <MenuList border="1px solid #313b37" bg="#171c1b">
                       {notification.length === 0 ? (
                         <MenuItem
                           fontSize={"sm"}
                           textColor={"gray.300"}
-                          bg={"#0F1924"}
+                          bg="#171c1b"
                           display="flex"
                           justifyContent="center"
                           alignItems="center"
@@ -706,9 +753,9 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
                   <Menu>
                     <MenuButton
                       as={Button}
-                      bg="#21364A"
-                      _hover={{ bg: "#2982db20" }}
-                      _active={{ bg: "#2982db20" }}
+                      bg="#202725"
+                      _hover={{ bg: "#2c3532" }}
+                      _active={{ bg: "#2c3532" }}
                       borderRadius="100%"
                       w={"45px"}
                       h={"45px"}
@@ -727,19 +774,19 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
                       />
                     </MenuButton>
                     <MenuList
-                      border={"1px solid #2982db20"}
-                      bg={"#0F1924"}
+                      border="1px solid #313b37"
+                      bg="#171c1b"
                       textColor={"white"}
                     >
                       <ProfileModal user={user}>
-                        <MenuItem fontSize={"sm"} bg={"#0F1924"}>
+                        <MenuItem fontSize={"sm"} bg="#171c1b">
                           My Profile
                         </MenuItem>{" "}
                       </ProfileModal>
                       <MenuDivider />
                       <MenuItem
                         fontSize={"sm"}
-                        bg={"#0F1924"}
+                        bg="#171c1b"
                         onClick={logoutHandler}
                       >
                         Logout
@@ -754,7 +801,7 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
               flexDir="column"
               bg="transparent"
               w="100%"
-              height="calc(100vh - 80px)"
+              height="calc(100dvh - 64px)"
               overflow="hidden"
             >
               {loading ? (
@@ -779,29 +826,29 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
                       width: "2px",
                     },
                     "&::-webkit-scrollbar-track": {
-                      background: "#21364A",
+                      background: "#202725",
                       borderRadius: "4px",
                       margin: "4px 0",
                     },
                     "&::-webkit-scrollbar-thumb": {
-                      background: "linear-gradient(180deg, #21364a, #3C87CD)",
+                      background: "#46534e",
                       borderRadius: "4px",
                       border: "1px solid rgba(255, 255, 255, 0.1)",
                       transition: "all 0.2s ease",
                     },
                     "&::-webkit-scrollbar-thumb:hover": {
-                      background: "linear-gradient(180deg, #21364A, #05549e)",
+                      background: "#5a6963",
                       border: "1px solid rgba(255, 255, 255, 0.2)",
                       transform: "scaleX(1.2)",
                     },
                     "&::-webkit-scrollbar-thumb:active": {
-                      background: "linear-gradient(180deg, #21364A, #1f449c)",
+                      background: "#6a7973",
                     },
                     "&::-webkit-scrollbar-corner": {
                       background: "transparent",
                     },
                     scrollbarWidth: "thin",
-                    scrollbarColor: "#21364A rgba(15, 25, 36, 0.5)",
+                    scrollbarColor: "#46534e #101414",
                   }}
                 >
                   <ScrollableChat
@@ -822,7 +869,8 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
                 width="100%"
                 px={3}
                 py={3}
-                bg="#0b1219ff"
+                bg="#171c1b"
+                borderTop="1px solid #313b37"
                 zIndex={10}
               >
                 {istyping ? <div>typing...</div> : <></>}
@@ -837,26 +885,26 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
                   <Input
                     width="90%"
                     variant="filled"
-                    bg="#0F1924"
-                    borderColor="#2982db20"
+                    bg="#202725"
+                    borderColor="#3a4541"
                     color="white"
                     _placeholder={{ color: "gray.400" }}
-                    _hover={{ borderColor: "#2982db40" }}
+                    _hover={{ borderColor: "#52615b" }}
                     _focus={{
-                      borderColor: "#21364A",
-                      boxShadow: "0 0 0 1px #21364A",
-                      bg: "#131f2bff",
+                      borderColor: "#34d399",
+                      boxShadow: "0 0 0 1px #34d399",
+                      bg: "#202725",
                     }}
-                    placeholder="Type Here"
+                    placeholder="Write a message"
                     value={newMessage}
                     onChange={typingHandler}
                     className="enteramsg"
                   />
                   <Button
                     ml={2}
-                    bg="#21364A"
-                    color="#fff"
-                    _hover={{ bg: "#2982db20" }}
+                    bg="#34d399"
+                    color="#07120e"
+                    _hover={{ bg: "#6ee7b7" }}
                     onClick={(e) => {
                       e.preventDefault();
                       sendMessage();
@@ -871,7 +919,7 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
                     >
                       <path
                         d="M2 21L23 12L2 3V10L17 12L2 14V21Z"
-                        fill="white"
+                        fill="currentColor"
                       />
                     </svg>
                   </Button>
@@ -883,14 +931,19 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
           <Box
             display="flex"
             alignItems="center"
-            bg="#0f1924"
+            bg="#101414"
             justifyContent="center"
             height="100vh"
             w="100%"
           >
-            <Text fontSize="3xl" pb={3} textColor="#fff" fontFamily="Work sans">
-              Click on a user to start chatting
-            </Text>
+            <Box textAlign="center" px={6}>
+              <Text fontSize="lg" fontWeight="700" color="#eef4f1">
+                Choose a conversation
+              </Text>
+              <Text fontSize="sm" color="#8f9d97" mt={2}>
+                Select a chat from the workspace sidebar to start collaborating.
+              </Text>
+            </Box>
           </Box>
         )}
 

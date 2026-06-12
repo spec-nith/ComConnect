@@ -1,219 +1,168 @@
 import React from "react";
-import { Box, Button, Flex, Text, VStack, Container, Heading } from "@chakra-ui/react";
-import { useWorkspace } from "../../Context/WorkspaceProvider";
+import {
+  Avatar,
+  AvatarGroup,
+  Box,
+  Button,
+  Flex,
+  Heading,
+  HStack,
+  SimpleGrid,
+  Text,
+} from "@chakra-ui/react";
+import { FiArrowRight, FiGrid, FiLogOut, FiPlus } from "react-icons/fi";
 import { useNavigate } from "react-router-dom";
+import { useWorkspace } from "../../Context/WorkspaceProvider";
 import CreateWorkspaceModal from "./CreateWorkspaceModal";
 import JoinWorkspaceModal from "./JoinWorkspaceModal";
+import BrandMark from "../brand/BrandMark";
 
 const WorkspaceSelection = () => {
-  const { userWorkspaces, setUserWorkspaces } = useWorkspace();
-  console.log("workspaces", userWorkspaces);
+  const { userWorkspaces, user } = useWorkspace();
   const navigate = useNavigate();
 
-  const handleSelectWorkspace = (workspace) => {
-    setUserWorkspaces(workspace);
-    let workspaceId = workspace._id;
-    console.log("worksapce_id", workspace._id);
-    navigate(`/workspace/${workspaceId}/chats`);
+  const logout = () => {
+    localStorage.removeItem("userInfo");
+    navigate("/");
   };
 
   return (
-    <Flex
-      minHeight="100vh"
-      width="100%"
-      align="center"
-      justify="center"
-      bg="#0f1924"
-      py={8}
-    >
-      <Container maxW="1400px" px={6}>
-        <Flex
-          bg="#1b3046ff"
-          borderRadius="2xl"
-          boxShadow="0 8px 32px rgba(0, 0, 0, 0.4)"
-          border="1px solid"
-          borderColor="#2982db20"
-          overflow="hidden"
-          direction="column"
-        >
-          {/* Hero Section */}
-          <Flex
-            direction={{ base: "column", lg: "row" }}
-            align="center"
-            justify="space-between"
-            p={{ base: 8, md: 12 }}
-            gap={8}
-          >
-            {/* Content */}
-            <VStack
-              align={{ base: "center", lg: "flex-start" }}
-              spacing={6}
-              flex={1}
-              textAlign={{ base: "center", lg: "left" }}
-            >
-              <Box>
-                <Heading
-                  fontSize={{ base: "3xl", md: "4xl", lg: "5xl" }}
-                  fontWeight="800"
-                  color="white"
-                  lineHeight="1.2"
-                  mb={4}
-                >
-                  Introducing ComConnect
-                </Heading>
-                <Text
-                  fontSize={{ base: "md", md: "lg" }}
-                  color="gray.300"
-                  lineHeight="1.8"
-                  maxW="600px"
-                >
-                  Revolutionizing college communities by connecting students,
-                  allocating roles based on preferences, and creating teams that
-                  feel like family. Empower collaboration and enhance productivity
-                  with ComConnect!
-                </Text>
-              </Box>
-            </VStack>
-
-            {/* Image */}
-            <Flex
-              flex={1}
-              justify="center"
-              align="center"
-              maxW={{ base: "300px", md: "400px", lg: "500px" }}
-            >
-              <Box
-                position="relative"
-                w="100%"
-                h="100%"
-              >
-                <Box
-                  as="img"
-                  src="/images/workspace.png"
-                  alt="workspace"
-                  w="100%"
-                  h="auto"
-                />
-              </Box>
-            </Flex>
-          </Flex>
-
-          {/* Action Buttons Section */}
-          <Box
-            bg="#0F1924"
-            borderTop="1px solid"
-            borderColor="#2982db20"
-            px={{ base: 8, md: 12 }}
-            py={8}
-          >
-            <VStack spacing={6}>
-              <Text
-                fontSize="lg"
-                fontWeight="600"
-                color="white"
-                textAlign="center"
-              >
-                Create or join a workspace to begin collaborating
-              </Text>
-
-              <Flex
-                direction={{ base: "column", md: "row" }}
-                gap={4}
-                w="full"
-                justify="center"
-                flexWrap="wrap"
-              >
-                {/* Create Workspace Card */}
-                <VStack
-                  flex={{ base: "1", md: "0 1 300px" }}
-                  bg="#1b3046ff"
-                  border="1px solid"
-                  borderColor="#2982db20"
-                  borderRadius="xl"
-                  p={6}
-                  spacing={4}
-                >
-                  <VStack spacing={2}>
-                    <Text fontSize="xl" fontWeight="700" color="white">
-                      Create Workspace
-                    </Text>
-                    <Text fontSize="sm" color="gray.400" textAlign="center">
-                      Start fresh with a new workspace
-                    </Text>
-                  </VStack>
-                  <CreateWorkspaceModal />
-                </VStack>
-
-                {/* Join Workspace Card */}
-                <VStack
-                  flex={{ base: "1", md: "0 1 300px" }}
-                  bg="#1b3046ff"
-                  border="1px solid"
-                  borderColor="#2982db20"
-                  borderRadius="xl"
-                  p={6}
-                  spacing={4}
-                >
-                  <VStack spacing={2}>
-                    <Text fontSize="xl" fontWeight="700" color="white">
-                      Join Workspace
-                    </Text>
-                    <Text fontSize="sm" color="gray.400" textAlign="center">
-                      Connect with an existing team
-                    </Text>
-                  </VStack>
-                  <JoinWorkspaceModal>
-                    <Button
-                      bg="#21364A"
-                      color="white"
-                      px={4}
-                      py={2}
-                      rounded="lg"
-                      fontWeight="600"
-                      w="full"
-                      _hover={{ bg: "#192937ff" }}
-                    >
-                      Join Workspace
-                    </Button>
-                  </JoinWorkspaceModal>
-                </VStack>
-
-                {/* View Workspaces Card */}
-                <VStack
-                  flex={{ base: "1", md: "0 1 300px" }}
-                  bg="#1b3046ff"
-                  border="1px solid"
-                  borderColor="#2982db20"
-                  borderRadius="xl"
-                  p={6}
-                  spacing={4}
-                >
-                  <VStack spacing={2}>
-                    <Text fontSize="xl" fontWeight="700" color="white">
-                      My Workspaces
-                    </Text>
-                    <Text fontSize="sm" color="gray.400" textAlign="center">
-                      View all {userWorkspaces?.length || 0} workspace{userWorkspaces?.length !== 1 ? 's' : ''}
-                    </Text>
-                  </VStack>
-                  <Button
-                    bg="#21364A"
-                    color="white"
-                    px={4}
-                    py={2}
-                    rounded="lg"
-                    fontWeight="600"
-                    _hover={{ bg: "#192937ff" }}
-                    onClick={() => navigate("/my-workspaces")}
-                  >
-                    View My Workspaces
-                  </Button>
-                </VStack>
-              </Flex>
-            </VStack>
+    <Flex minH="100dvh" bg="#101414" direction="column">
+      <Flex
+        as="header"
+        minH="68px"
+        px={{ base: 5, md: 8 }}
+        align="center"
+        justify="space-between"
+        borderBottom="1px solid #313b37"
+      >
+        <HStack spacing={3}>
+          <BrandMark size="38px" />
+          <Box>
+            <Text fontWeight="750">ComConnect</Text>
+            <Text color="#8f9d97" fontSize="xs">Workspace directory</Text>
           </Box>
+        </HStack>
+        <Button
+          leftIcon={<FiLogOut />}
+          size="sm"
+          variant="ghost"
+          color="#bdc8c3"
+          onClick={logout}
+        >
+          Sign out
+        </Button>
+      </Flex>
+
+      <Box w="100%" maxW="1180px" mx="auto" px={{ base: 5, md: 8 }} py={10}>
+        <Flex
+          align={{ base: "flex-start", md: "center" }}
+          justify="space-between"
+          direction={{ base: "column", md: "row" }}
+          gap={5}
+          mb={8}
+        >
+          <Box>
+            <Heading fontSize={{ base: "2xl", md: "3xl" }} letterSpacing="0">
+              Your workspaces
+            </Heading>
+            <Text color="#9eaaa5" mt={2}>
+              Welcome back{user?.name ? `, ${user.name}` : ""}. Pick up where your team left off.
+            </Text>
+          </Box>
+          <Flex gap={3} flexWrap="wrap">
+            <CreateWorkspaceModal />
+            <JoinWorkspaceModal>
+              <Button
+                leftIcon={<FiPlus />}
+                variant="outline"
+                borderColor="#3a4541"
+                color="#dce6e1"
+                _hover={{ bg: "#202725" }}
+              >
+                Join workspace
+              </Button>
+            </JoinWorkspaceModal>
+          </Flex>
         </Flex>
-      </Container>
+
+        {userWorkspaces?.length ? (
+          <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={4}>
+            {userWorkspaces.map((workspace) => (
+              <Flex
+                key={workspace._id}
+                as="button"
+                type="button"
+                direction="column"
+                minH="190px"
+                p={5}
+                textAlign="left"
+                bg="#171c1b"
+                border="1px solid #313b37"
+                borderRadius="8px"
+                transition="border-color 150ms ease, background 150ms ease"
+                _hover={{ bg: "#1b211f", borderColor: "#52615b" }}
+                onClick={() => navigate(`/workspace/${workspace._id}/chats`)}
+              >
+                <Flex align="center" justify="space-between">
+                  <Flex
+                    w="42px"
+                    h="42px"
+                    align="center"
+                    justify="center"
+                    bg="#26332e"
+                    color="#6ee7b7"
+                    borderRadius="6px"
+                    fontWeight="800"
+                  >
+                    {workspace.workspaceName?.charAt(0).toUpperCase() || "W"}
+                  </Flex>
+                  <FiArrowRight color="#8f9d97" />
+                </Flex>
+                <Text fontWeight="700" fontSize="lg" mt={5} noOfLines={1}>
+                  {workspace.workspaceName}
+                </Text>
+                <Text color="#8f9d97" fontSize="sm" mt={1}>
+                  {workspace.members?.length || 0} members
+                </Text>
+                <Flex mt="auto" pt={5} align="center" justify="space-between">
+                  <AvatarGroup size="xs" max={4}>
+                    {(workspace.members || []).map((member, index) => (
+                      <Avatar
+                        key={member._id || index}
+                        name={member.name}
+                        src={member.pic}
+                        bg="#2c3532"
+                      />
+                    ))}
+                  </AvatarGroup>
+                  <Text color="#34d399" fontSize="xs" fontWeight="700">
+                    Open workspace
+                  </Text>
+                </Flex>
+              </Flex>
+            ))}
+          </SimpleGrid>
+        ) : (
+          <Flex
+            minH="320px"
+            align="center"
+            justify="center"
+            direction="column"
+            border="1px dashed #46534e"
+            borderRadius="8px"
+            bg="#141817"
+            textAlign="center"
+            px={6}
+          >
+            <FiGrid size={28} color="#34d399" />
+            <Text fontWeight="700" mt={4}>No workspaces yet</Text>
+            <Text color="#8f9d97" fontSize="sm" mt={2} maxW="420px">
+              Create an event workspace or join one with an invitation from your team.
+            </Text>
+          </Flex>
+        )}
+      </Box>
     </Flex>
   );
 };

@@ -17,6 +17,7 @@ import axios from "axios";
 import { useState } from "react";
 import { useParams } from "react-router-dom"; // Import useParams
 import { ChatState } from "../../Context/ChatProvider";
+import { API_URL } from "../../config/api.config";
 import UserBadgeItem from "../userAvatar/UserBadgeItem";
 import UserListItem from "../userAvatar/UserListItem";
 
@@ -48,6 +49,7 @@ const GroupChatModal = ({ children }) => {
   const handleSearch = async (query) => {
     setSearch(query);
     if (!query) {
+      setSearchResult([]);
       return;
     }
     try {
@@ -58,20 +60,25 @@ const GroupChatModal = ({ children }) => {
         },
       };
       const { data } = await axios.get(
-        `/api/user?search=${search}&workspaceId=${workspaceId}`,
+        `${API_URL}/user?search=${encodeURIComponent(
+          query
+        )}&workspaceId=${workspaceId}`,
         config
       );
-      setLoading(false);
-      setSearchResult(data);
+      setSearchResult(Array.isArray(data) ? data : []);
     } catch (error) {
+      setSearchResult([]);
       toast({
-        title: "Error Occurred!",
-        description: "Failed to Load the Search Results",
+        title: "Search failed",
+        description:
+          error.response?.data?.message || "Failed to load search results",
         status: "error",
         duration: 5000,
         isClosable: true,
         position: "bottom-left",
       });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -91,8 +98,6 @@ const GroupChatModal = ({ children }) => {
       return;
     }
 
-    console.log("Submitting:", groupChatName, selectedUsers, workspaceId); // Debug log
-
     if (workspaceId) {
       try {
         const config = {
@@ -101,7 +106,7 @@ const GroupChatModal = ({ children }) => {
           },
         };
         const { data } = await axios.post(
-          `/api/chat/group`,
+          `${API_URL}/chat/group`,
           {
             name: groupChatName,
             users: JSON.stringify(selectedUsers.map((u) => u._id)),
@@ -119,10 +124,12 @@ const GroupChatModal = ({ children }) => {
           position: "bottom",
         });
       } catch (error) {
-        console.error("Failed to create group chat:", error.response); // Debug log
         toast({
           title: "Failed to Create the Chat!",
-          description: error.response.data,
+          description:
+            error.response?.data?.message ||
+            error.response?.data ||
+            error.message,
           status: "error",
           duration: 5000,
           isClosable: true,
@@ -165,6 +172,7 @@ const GroupChatModal = ({ children }) => {
               <Input
                 placeholder="Add Users eg: John, Piyush, Jane"
                 mb={1}
+                value={search}
                 color="#fff"
                 bg="#21364a"
                 border="none"
@@ -184,7 +192,7 @@ const GroupChatModal = ({ children }) => {
               <div>Loading...</div>
             ) : (
               searchResult
-                ?.slice(0, 4)
+                .slice(0, 4)
                 .map((user) => (
                   <UserListItem
                     key={user._id}

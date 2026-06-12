@@ -1,302 +1,174 @@
-import { Button } from "@chakra-ui/button";
-import { FormControl, FormLabel } from "@chakra-ui/form-control";
-import { Input, InputGroup, InputRightElement } from "@chakra-ui/input";
-import { VStack } from "@chakra-ui/layout";
-import { useToast } from "@chakra-ui/toast";
+import {
+  Box,
+  Button,
+  FormControl,
+  FormLabel,
+  IconButton,
+  Input,
+  InputGroup,
+  InputRightElement,
+  SimpleGrid,
+  VStack,
+  useToast,
+} from "@chakra-ui/react";
+import { ViewIcon, ViewOffIcon } from "@chakra-ui/icons";
 import axios from "axios";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_URL } from "../../config/api.config";
-import { Box, Flex, Stack, Text, Image } from "@chakra-ui/react";
-import signupimg from "../../assets/signup.png";
+
+const inputStyles = {
+  bg: "#171c1b",
+  borderColor: "#3a4541",
+  color: "#eef4f1",
+  _placeholder: { color: "#6f7d77" },
+  _hover: { borderColor: "#52615b" },
+};
 
 const Signup = () => {
-  const [show, setShow] = useState(false);
-  const handleClick = () => setShow(!show);
+  const [showPassword, setShowPassword] = useState(false);
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+    pic: "",
+  });
+  const [loading, setLoading] = useState(false);
   const toast = useToast();
   const navigate = useNavigate();
 
-  const [name, setName] = useState();
-  const [email, setEmail] = useState();
-  const [confirmpassword, setConfirmpassword] = useState();
-  const [password, setPassword] = useState();
-  const [pic, setPic] = useState();
-  const [picLoading, setPicLoading] = useState(false);
+  const update = (field) => (event) =>
+    setForm((current) => ({ ...current, [field]: event.target.value }));
 
-  const submitHandler = async () => {
-    setPicLoading(true);
-    if (!name || !email || !password || !confirmpassword) {
-      toast({
-        title: "Please Fill all the Fields",
-        status: "warning",
-        duration: 5000,
-        isClosable: true,
-        position: "bottom",
-      });
-      setPicLoading(false);
+  const uploadPicture = async (file) => {
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      toast({ title: "Choose a JPG, PNG, or WebP image", status: "warning" });
       return;
     }
-    if (password !== confirmpassword) {
-      toast({
-        title: "Passwords Do Not Match",
-        status: "warning",
-        duration: 5000,
-        isClosable: true,
-        position: "bottom",
-      });
-      return;
-    }
-    console.log(name, email, password, pic);
+
+    setLoading(true);
     try {
-      const config = {
-        headers: {
-          "Content-type": "application/json",
-        },
-      };
-      const { data } = await axios.post(
-        `${API_URL}/user`,
-        {
-          name,
-          email,
-          password,
-          pic,
-        },
-        config
+      const upload = new FormData();
+      upload.append("file", file);
+      upload.append("upload_preset", "chat-app");
+      upload.append("cloud_name", "piyushproj");
+      const response = await fetch(
+        "https://api.cloudinary.com/v1_1/piyushproj/image/upload",
+        { method: "POST", body: upload }
       );
-      console.log(data);
-      toast({
-        title: "Registration Successful",
-        status: "success",
-        duration: 5000,
-        isClosable: true,
-        position: "bottom",
-      });
-      localStorage.setItem("userInfo", JSON.stringify(data));
-      setPicLoading(false);
-      navigate("/workspace");
+      const data = await response.json();
+      setForm((current) => ({ ...current, pic: data.secure_url || data.url }));
     } catch (error) {
-      toast({
-        title: "Error Occured!",
-        description: error.response.data.message,
-        status: "error",
-        duration: 5000,
-        isClosable: true,
-        position: "bottom",
-      });
-      setPicLoading(false);
+      toast({ title: "Profile image upload failed", status: "error" });
+    } finally {
+      setLoading(false);
     }
   };
 
-  const postDetails = (pics) => {
-    setPicLoading(true);
-    if (pics === undefined) {
-      toast({
-        title: "Please Select an Image!",
-        status: "warning",
-        duration: 5000,
-        isClosable: true,
-        position: "bottom",
-      });
+  const submitHandler = async (event) => {
+    event.preventDefault();
+    if (!form.name || !form.email || !form.password || !form.confirmPassword) {
+      toast({ title: "Complete all required fields", status: "warning" });
       return;
     }
-    console.log(pics);
-    if (pics.type === "image/jpeg" || pics.type === "image/png") {
-      const data = new FormData();
-      data.append("file", pics);
-      data.append("upload_preset", "chat-app");
-      data.append("cloud_name", "piyushproj");
-      fetch("https://api.cloudinary.com/v1_1/piyushproj/image/upload", {
-        method: "post",
-        body: data,
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          setPic(data.url.toString());
-          console.log(data.url.toString());
-          setPicLoading(false);
-        })
-        .catch((err) => {
-          console.log(err);
-          setPicLoading(false);
-        });
-    } else {
-      toast({
-        title: "Please Select an Image!",
-        status: "warning",
-        duration: 5000,
-        isClosable: true,
-        position: "bottom",
-      });
-      setPicLoading(false);
+    if (form.password !== form.confirmPassword) {
+      toast({ title: "Passwords do not match", status: "warning" });
       return;
+    }
+
+    setLoading(true);
+    try {
+      const { data } = await axios.post(`${API_URL}/user`, {
+        name: form.name,
+        email: form.email,
+        password: form.password,
+        pic: form.pic,
+      });
+      localStorage.setItem("userInfo", JSON.stringify(data));
+      navigate("/workspace");
+    } catch (error) {
+      toast({
+        title: "Account creation failed",
+        description: error.response?.data?.message || error.message,
+        status: "error",
+        isClosable: true,
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div className="">
-      <Stack
-        direction={["column", "column", "row"]}
-        spacing={8}
-        align="center"
-        justify="center"
-        pb={3}
-      >
-        <Box width={["100%", "100%", "60%"]}>
-          <VStack spacing="5px">
-            <FormControl id="first-name" isRequired>
-              <FormLabel mb={0} mt={3} fontFamily="subhead" textColor="white">
-                Name
-              </FormLabel>
-              <Input
-                fontFamily="content"
-                bg="#21364a"
-                border="none"
-                placeholder="Enter Your Name"
-                textColor="white"
-                onChange={(e) => setName(e.target.value)}
+    <Box as="form" onSubmit={submitHandler}>
+      <VStack spacing={4} align="stretch">
+        <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+          <FormControl isRequired>
+            <FormLabel fontSize="sm" color="#bdc8c3">Name</FormLabel>
+            <Input {...inputStyles} value={form.name} onChange={update("name")} />
+          </FormControl>
+          <FormControl isRequired>
+            <FormLabel fontSize="sm" color="#bdc8c3">Email</FormLabel>
+            <Input
+              {...inputStyles}
+              type="email"
+              value={form.email}
+              onChange={update("email")}
+            />
+          </FormControl>
+        </SimpleGrid>
+        <FormControl isRequired>
+          <FormLabel fontSize="sm" color="#bdc8c3">Password</FormLabel>
+          <InputGroup>
+            <Input
+              {...inputStyles}
+              type={showPassword ? "text" : "password"}
+              value={form.password}
+              onChange={update("password")}
+            />
+            <InputRightElement>
+              <IconButton
+                variant="ghost"
+                size="sm"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                title={showPassword ? "Hide password" : "Show password"}
+                icon={showPassword ? <ViewOffIcon /> : <ViewIcon />}
+                onClick={() => setShowPassword((value) => !value)}
               />
-            </FormControl>
-            <FormControl id="email" isRequired>
-              <FormLabel mb={0} mt={3} fontFamily="subhead" textColor="white">
-                Email Address
-              </FormLabel>
-              <Input
-                fontFamily="content"
-                type="email"
-                bg="#21364a"
-                border="none"
-                textColor="white"
-                placeholder="Enter Your Email Address"
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </FormControl>
-            <FormControl id="password" isRequired>
-              <FormLabel mb={0} mt={3} fontFamily="subhead" textColor="white">
-                Password
-              </FormLabel>
-              <InputGroup size="md">
-                <Input
-                  fontFamily="content"
-                  bg="#21364a"
-                  border="none"
-                  textColor="white"
-                  type={show ? "text" : "password"}
-                  placeholder="Enter Password"
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-                <InputRightElement width="4.5rem">
-                  <Button
-                    h="1.75rem"
-                    size="sm"
-                    fontFamily="content"
-                    bg="#1b3046ff"
-                    textColor="white"
-                    _hover={{ textColor: "black", bg: "gray.300" }}
-                    onClick={handleClick}
-                  >
-                    {show ? "Hide" : "Show"}
-                  </Button>
-                </InputRightElement>
-              </InputGroup>
-            </FormControl>
-            <FormControl id="password" isRequired>
-              <FormLabel mb={0} mt={3} fontFamily="subhead" textColor="white">
-                Confirm Password
-              </FormLabel>
-              <InputGroup size="md">
-                <Input
-                  fontFamily="content"
-                  bg="#21364a"
-                  border="none"
-                  textColor="white"
-                  type={show ? "text" : "password"}
-                  placeholder="Confirm password"
-                  onChange={(e) => setConfirmpassword(e.target.value)}
-                />
-                <InputRightElement width="4.5rem">
-                  <Button
-                    h="1.75rem"
-                    size="sm"
-                    fontFamily="content"
-                    bg="#1b3046ff"
-                    textColor="white"
-                    _hover={{ textColor: "black", bg: "gray.300" }}
-                    onClick={handleClick}
-                  >
-                    {show ? "Hide" : "Show"}
-                  </Button>
-                </InputRightElement>
-              </InputGroup>
-            </FormControl>
-            <FormControl id="pic">
-              <FormLabel mb={0} mt={3} fontFamily="subhead" textColor="white">
-                Upload your Picture
-              </FormLabel>
-              <Box position="relative" width="100%">
-                <Input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => postDetails(e.target.files[0])}
-                  position="absolute"
-                  left={0}
-                  top={0}
-                  width="100%"
-                  height="100%"
-                  opacity={0}
-                  zIndex={2}
-                  cursor="pointer"
-                />
-                <Button
-                  as="span"
-                  bg="#05549e"
-                  color="white"
-                  width="100%"
-                  fontFamily="subhead"
-                  _hover={{ bg: "#0c77dbff" }}
-                  zIndex={1}
-                >
-                  Choose Profile Photo
-                </Button>
-              </Box>
-            </FormControl>
-          </VStack>
-        </Box>
-        <Box
-          width={["100%", "100%", "60%"]}
-          display="flex"
-          justifyContent="center"
-          alignItems="center"
-          mt={[8, 8, 0]}
-        >
-          <Image
-            src={signupimg}
-            alt="Description"
-            boxSize={["270px", "300px", "350px"]}
-            objectFit="cover"
-            borderRadius="lg"
+            </InputRightElement>
+          </InputGroup>
+        </FormControl>
+        <FormControl isRequired>
+          <FormLabel fontSize="sm" color="#bdc8c3">Confirm password</FormLabel>
+          <Input
+            {...inputStyles}
+            type={showPassword ? "text" : "password"}
+            value={form.confirmPassword}
+            onChange={update("confirmPassword")}
           />
-        </Box>
-      </Stack>
-      <Button
-        bg="#05549e"
-        color="white"
-        zIndex={1}
-        width="80%"
-        alignItems="center"
-        justifyContent="center"
-        rounded={10}
-        style={{ marginTop: 15 }}
-        onClick={submitHandler}
-        isLoading={picLoading}
-        textColor="white"
-        fontFamily="subhead"
-        _hover={{ bg: "#025fb6ff" }}
-        mx="auto"
-        display="block"
-      >
-        Sign Up
-      </Button>
-    </div>
+        </FormControl>
+        <FormControl>
+          <FormLabel fontSize="sm" color="#bdc8c3">Profile photo</FormLabel>
+          <Input
+            {...inputStyles}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            pt="6px"
+            onChange={(event) => uploadPicture(event.target.files[0])}
+          />
+        </FormControl>
+        <Button
+          type="submit"
+          isLoading={loading}
+          bg="#34d399"
+          color="#07120e"
+          _hover={{ bg: "#6ee7b7" }}
+        >
+          Create account
+        </Button>
+      </VStack>
+    </Box>
   );
 };
 

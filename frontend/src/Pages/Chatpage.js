@@ -1,96 +1,58 @@
-import SplitPane from "react-split-pane";
 import {
   Box,
-  useBreakpointValue,
   Drawer,
-  DrawerOverlay,
-  DrawerContent,
   DrawerBody,
+  DrawerContent,
+  DrawerOverlay,
   IconButton,
+  useDisclosure,
 } from "@chakra-ui/react";
-import { useState } from "react";
 import { FiMenu } from "react-icons/fi";
+import { useState } from "react";
 import Chatbox from "../components/Chatbox";
 import MyChats from "../components/MyChats";
-import SideDrawer from "../components/miscellaneous/SideDrawer";
 import { ChatState } from "../Context/ChatProvider";
-
 import "./chat.css";
 
 const Chatpage = () => {
   const [fetchAgain, setFetchAgain] = useState(false);
-  const { user } = ChatState();
-  const [isDrawerOpen, setDrawerOpen] = useState(false);
-
-  // Responsive mode: "mobile", "medium", "large"
-  const mode = useBreakpointValue({
-    base: "mobile",
-    md: "medium",
-    lg: "large",
-  });
+  const { user, selectedChat } = ChatState();
+  const navigation = useDisclosure();
 
   return (
-    <div className="chats-sec" style={{ width: "100%", height: "100vh" }}>
-      {/* {user && <SideDrawer />} */}
+    <Box className="workspace-shell">
+      <Box as="aside" className="workspace-sidebar">
+        {user && <MyChats fetchAgain={fetchAgain} />}
+      </Box>
 
-      {(mode === "mobile" || mode === "medium") && (
-        <>
-          <IconButton
-            icon={<FiMenu />}
-            aria-label="Open My Chats"
-            position="fixed"
-            top={4}
-            left={4}
-            zIndex={2000}
-            onClick={() => setDrawerOpen(true)}
-            colorScheme="blue"
-          />
-          <Drawer
-            isOpen={isDrawerOpen}
-            placement="left"
-            onClose={() => setDrawerOpen(false)}
-          >
-            <DrawerOverlay />
-            <DrawerContent bg="#0f1924" maxWidth={"60vw"} width="60vw">
-              <DrawerBody>
-                {user && <MyChats fetchAgain={fetchAgain} />}
-              </DrawerBody>
-            </DrawerContent>
-          </Drawer>
-          <Box className="chatting" w="100%" h="100vh">
-            {user && (
-              <Chatbox fetchAgain={fetchAgain} setFetchAgain={setFetchAgain} />
-            )}
-          </Box>
-        </>
-      )}
+      <Box as="section" className="workspace-conversation">
+        <IconButton
+          className="mobile-nav-trigger"
+          icon={<FiMenu />}
+          aria-label="Open conversations"
+          title="Open conversations"
+          onClick={navigation.onOpen}
+          display={selectedChat ? "none" : undefined}
+        />
+        {user && (
+          <Chatbox fetchAgain={fetchAgain} setFetchAgain={setFetchAgain} />
+        )}
+      </Box>
 
-      {mode === "large" && (
-        <SplitPane
-          split="vertical"
-          minSize={300}
-          maxSize={1200}
-          defaultSize={500}
-          style={{ height: "100vh" }}
-        >
-          <div
-            className="sidebar"
-            style={{
-              background: "#0f1924",
-              height: "100%",
-              overflowX: "hidden",
-            }}
-          >
+      <Drawer
+        isOpen={navigation.isOpen}
+        placement="left"
+        onClose={navigation.onClose}
+        size="xs"
+      >
+        <DrawerOverlay />
+        <DrawerContent bg="#171c1b" maxW="min(360px, 90vw)">
+          <DrawerBody p={0}>
             {user && <MyChats fetchAgain={fetchAgain} />}
-          </div>
-          <div>
-            {user && (
-              <Chatbox fetchAgain={fetchAgain} setFetchAgain={setFetchAgain} />
-            )}
-          </div>
-        </SplitPane>
-      )}
-    </div>
+          </DrawerBody>
+        </DrawerContent>
+      </Drawer>
+    </Box>
   );
 };
 

@@ -1,0 +1,40 @@
+import { Box } from "@chakra-ui/react";
+
+const BrandMark = ({ size = "36px", ...props }) => (
+  <Box
+    as="span"
+    display="inline-flex"
+    width={size}
+    height={size}
+    flex="0 0 auto"
+    borderRadius="10px"
+    overflow="hidden"
+    boxShadow="0 8px 24px rgba(52, 211, 153, 0.16)"
+    {...props}
+  >
+    <svg
+      viewBox="0 0 64 64"
+      width="100%"
+      height="100%"
+      role="img"
+      aria-label="ComConnect"
+    >
+      <rect width="64" height="64" rx="16" fill="#101414" />
+      <path
+        d="M11 16.5C11 12.91 13.91 10 17.5 10h20C43.3 10 48 14.7 48 20.5v6C48 32.3 43.3 37 37.5 37H27l-10 8v-8.13A6.5 6.5 0 0 1 11 30.5v-14Z"
+        fill="#34D399"
+      />
+      <path
+        d="M25 31.5C25 26.81 28.81 23 33.5 23h13C51.19 23 55 26.81 55 31.5v7c0 4.69-3.81 8.5-8.5 8.5H43v7l-9-7h-.5c-4.69 0-8.5-3.81-8.5-8.5v-7Z"
+        fill="#E8FFF6"
+        stroke="#101414"
+        strokeWidth="3"
+      />
+      <circle cx="34" cy="35" r="2" fill="#101414" />
+      <circle cx="41" cy="35" r="2" fill="#101414" />
+      <circle cx="48" cy="35" r="2" fill="#101414" />
+    </svg>
+  </Box>
+);
+
+export default BrandMark;

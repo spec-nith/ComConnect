@@ -1,0 +1,35 @@
+name: Deploy Vercel Frontend
+
+on:
+  push:
+    branches: [main, "comconnect/**"]
+
+concurrency:
+  group: deploy-vercel-frontend
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: contains(github.event.head_commit.message, '[deploy-frontend]')
+    runs-on: ubuntu-latest
+    environment: production-render-vercel
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Deploy frontend to Vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL }}
+        run: |
+          npx vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN"
+          npx vercel@latest build --prod --token="$VERCEL_TOKEN"
+          npx vercel@latest deploy --prebuilt --prod --token="$VERCEL_TOKEN"

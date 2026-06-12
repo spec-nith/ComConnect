@@ -4,7 +4,6 @@ import MapComponent from "./Map";
 import { indexedDBService } from "../../services/indexedDBService";
 import { ChatState } from "../../Context/ChatProvider";
 import { API_URL } from "../../config/api.config";
-import { Modal } from "@chakra-ui/react";
 
 const Geo = () => {
   const { user } = ChatState();

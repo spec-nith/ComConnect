@@ -4,12 +4,15 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "cd frontend && npm install && npm run build",
-    "start": "cd frontend && npm run start",
-    "start:local": "cd frontend && npm run start:local",
-    "start:prod": "cd frontend && npm run start:prod",
-    "start:docker": "cd frontend && npm run start:docker",
-    "serve": "cd frontend && node server.js"
+    "build": "npm run build --prefix frontend",
+    "start": "npm run start --prefix frontend",
+    "start:local": "npm run start:local --prefix frontend",
+    "start:prod": "npm run start:prod --prefix frontend",
+    "start:docker": "npm run start:docker --prefix frontend",
+    "serve": "node frontend/server.js"
+  },
+  "engines": {
+    "node": "20.x"
   },
   "keywords": [],
   "author": "",

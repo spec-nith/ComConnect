@@ -15,9 +15,51 @@
   margin: 0 10px;
 }
 .chatboxkiheight {
-  background-color: transparent  !important;
-  height: calc(100vh - 120px);
+  background-color: transparent !important;
+  height: 100dvh;
   width: 100%;
+}
+
+.message-feed {
+  min-height: 100%;
+  padding: 24px clamp(12px, 3vw, 40px) 18px;
+  background: #101414;
+}
+
+.message-row {
+  display: flex;
+  padding: 1px 0;
+}
+
+.message-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(72%, 680px);
+  padding: 9px 13px;
+  border: 1px solid #313b37;
+  border-radius: 6px;
+  background: #202725;
+  color: #e7eeeb;
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.message-bubble--mine {
+  border-color: #32604f;
+  background: #214438;
+  color: #effcf6;
+}
+
+@media (max-width: 640px) {
+  .message-feed {
+    padding: 18px 10px 14px;
+  }
+
+  .message-bubble {
+    max-width: 84%;
+  }
 }
 
 /* Search Dropdown Animations */

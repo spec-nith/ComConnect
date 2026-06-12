@@ -12,8 +12,6 @@ import {
   Button,
   useDisclosure,
   VStack,
-  Text,
-  Box,
   useToast,
 } from "@chakra-ui/react";
 import axios from "axios";
@@ -115,17 +113,17 @@ const JoinWorkspaceModal = ({ children }) => {
       <span onClick={onOpen}>{children}</span>
 
       <Modal size="lg" isOpen={isOpen} onClose={onClose} isCentered>
-        <ModalOverlay bg="blackAlpha.700" />
+        <ModalOverlay bg="blackAlpha.800" backdropFilter="blur(4px)" />
         <ModalContent
           pb={4}
           pt={1}
-          bg="#0F1924"
-          color="white"
+          bg="#171c1b"
+          color="#eef4f1"
           border="1px solid"
-          borderColor="#2982db20"
+          borderColor="#3a4541"
         >
           <ModalHeader color="white">Join Workspace</ModalHeader>
-          <ModalCloseButton color="white" _hover={{ bg: "#21364A" }} />
+          <ModalCloseButton color="#eef4f1" _hover={{ bg: "#2c3532" }} />
 
           <ModalBody>
             <VStack spacing={4} align="stretch">
@@ -135,15 +133,15 @@ const JoinWorkspaceModal = ({ children }) => {
                   placeholder="Enter Workspace ID"
                   value={workspaceId}
                   onChange={(e) => setWorkspaceId(e.target.value)}
-                  bg="#0F1924"
-                  borderColor="#2982db20"
-                  col or="white"
+                  bg="#202725"
+                  borderColor="#3a4541"
+                  color="white"
                   _placeholder={{ color: "gray.400" }}
-                  _hover={{ borderColor: "#2982db40" }}
+                  _hover={{ borderColor: "#52615b" }}
                   _focus={{
-                    borderColor: "#21364A",
-                    boxShadow: "0 0 0 1px #21364A",
-                    bg: "#131f2bff",
+                    borderColor: "#34d399",
+                    boxShadow: "0 0 0 1px #34d399",
+                    bg: "#202725",
                   }}
                 />
               </FormControl>
@@ -154,24 +152,24 @@ const JoinWorkspaceModal = ({ children }) => {
                   placeholder="Enter Role Name"
                   value={roleName}
                   onChange={(e) => setRoleName(e.target.value)}
-                  bg="#0F1924"
-                  borderColor="#2982db20"
+                  bg="#202725"
+                  borderColor="#3a4541"
                   color="white"
                   _placeholder={{ color: "gray.400" }}
-                  _hover={{ borderColor: "#2982db40" }}
+                  _hover={{ borderColor: "#52615b" }}
                   _focus={{
-                    borderColor: "#21364A",
-                    boxShadow: "0 0 0 1px #21364A",
-                    bg: "#131f2bff",
+                    borderColor: "#34d399",
+                    boxShadow: "0 0 0 1px #34d399",
+                    bg: "#202725",
                   }}
                 />
               </FormControl>
 
               <Button
-                bg="#21364A"
-                color="white"
-                _hover={{ bg: "#192937ff" }}
-                _active={{ bg: "#192937ff" }}
+                bg="#34d399"
+                color="#07120e"
+                _hover={{ bg: "#6ee7b7" }}
+                _active={{ bg: "#10b981" }}
                 onClick={joinWorkspace}
                 isLoading={loading}
                 mt={4}

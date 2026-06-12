@@ -1,4 +1,3 @@
-import { ViewIcon } from "@chakra-ui/icons";
 import {
   Modal,
   ModalOverlay,
@@ -13,13 +12,13 @@ import {
   Input,
   useToast,
   Box,
-  IconButton,
   Spinner,
   Text,
 } from "@chakra-ui/react";
 import axios from "axios";
 import { useState } from "react";
 import { ChatState } from "../../Context/ChatProvider";
+import { API_URL } from "../../config/api.config";
 import UserBadgeItem from "../userAvatar/UserBadgeItem";
 import UserListItem from "../userAvatar/UserListItem";
 
@@ -37,6 +36,7 @@ const UpdateGroupChatModal = ({ fetchMessages, fetchAgain, setFetchAgain }) => {
   const handleSearch = async (query) => {
     setSearch(query);
     if (!query) {
+      setSearchResult([]);
       return;
     }
 
@@ -47,19 +47,23 @@ const UpdateGroupChatModal = ({ fetchMessages, fetchAgain, setFetchAgain }) => {
           Authorization: `Bearer ${user.token}`,
         },
       };
-      const { data } = await axios.get(`/api/user?search=${search}`, config);
-      console.log(data);
-      setLoading(false);
-      setSearchResult(data);
+      const { data } = await axios.get(
+        `${API_URL}/user?search=${encodeURIComponent(query)}`,
+        config
+      );
+      setSearchResult(Array.isArray(data) ? data : []);
     } catch (error) {
+      setSearchResult([]);
       toast({
-        title: "Error Occured!",
-        description: "Failed to Load the Search Results",
+        title: "Search failed",
+        description:
+          error.response?.data?.message || "Failed to load search results",
         status: "error",
         duration: 5000,
         isClosable: true,
         position: "bottom-left",
       });
+    } finally {
       setLoading(false);
     }
   };
@@ -75,7 +79,7 @@ const UpdateGroupChatModal = ({ fetchMessages, fetchAgain, setFetchAgain }) => {
         },
       };
       const { data } = await axios.put(
-        `/api/chat/rename`,
+        `${API_URL}/chat/rename`,
         {
           chatId: selectedChat._id,
           chatName: groupChatName,
@@ -83,20 +87,18 @@ const UpdateGroupChatModal = ({ fetchMessages, fetchAgain, setFetchAgain }) => {
         config
       );
 
-      console.log(data._id);
-      // setSelectedChat("");
       setSelectedChat(data);
       setFetchAgain(!fetchAgain);
-      setRenameLoading(false);
     } catch (error) {
       toast({
-        title: "Error Occured!",
-        description: error.response.data.message,
+        title: "Group name could not be updated",
+        description: error.response?.data?.message || error.message,
         status: "error",
         duration: 5000,
         isClosable: true,
         position: "bottom",
       });
+    } finally {
       setRenameLoading(false);
     }
     setGroupChatName("");
@@ -133,7 +135,7 @@ const UpdateGroupChatModal = ({ fetchMessages, fetchAgain, setFetchAgain }) => {
         },
       };
       const { data } = await axios.put(
-        `/api/chat/groupadd`,
+        `${API_URL}/chat/groupadd`,
         {
           chatId: selectedChat._id,
           userId: user1._id,
@@ -143,19 +145,20 @@ const UpdateGroupChatModal = ({ fetchMessages, fetchAgain, setFetchAgain }) => {
 
       setSelectedChat(data);
       setFetchAgain(!fetchAgain);
-      setLoading(false);
+      setSearch("");
+      setSearchResult([]);
     } catch (error) {
       toast({
-        title: "Error Occured!",
-        description: error.response.data.message,
+        title: "User could not be added",
+        description: error.response?.data?.message || error.message,
         status: "error",
         duration: 5000,
         isClosable: true,
         position: "bottom",
       });
+    } finally {
       setLoading(false);
     }
-    setGroupChatName("");
   };
 
   const handleRemove = async (user1) => {
@@ -178,7 +181,7 @@ const UpdateGroupChatModal = ({ fetchMessages, fetchAgain, setFetchAgain }) => {
         },
       };
       const { data } = await axios.put(
-        `/api/chat/groupremove`,
+        `${API_URL}/chat/groupremove`,
         {
           chatId: selectedChat._id,
           userId: user1._id,
@@ -189,19 +192,18 @@ const UpdateGroupChatModal = ({ fetchMessages, fetchAgain, setFetchAgain }) => {
       user1._id === user._id ? setSelectedChat() : setSelectedChat(data);
       setFetchAgain(!fetchAgain);
       fetchMessages();
-      setLoading(false);
     } catch (error) {
       toast({
-        title: "Error Occured!",
-        description: error.response.data.message,
+        title: "User could not be removed",
+        description: error.response?.data?.message || error.message,
         status: "error",
         duration: 5000,
         isClosable: true,
         position: "bottom",
       });
+    } finally {
       setLoading(false);
     }
-    setGroupChatName("");
   };
 
   return (
@@ -277,6 +279,7 @@ const UpdateGroupChatModal = ({ fetchMessages, fetchAgain, setFetchAgain }) => {
               <Input
                 placeholder="Add User to group"
                 mb={1}
+                value={search}
                 onChange={(e) => handleSearch(e.target.value)}
                 border="1px solid #3C87CD"
                 bg="#0F1924"
@@ -317,7 +320,7 @@ const UpdateGroupChatModal = ({ fetchMessages, fetchAgain, setFetchAgain }) => {
                   },
                 }}
               >
-                {searchResult?.map((user) => (
+                {searchResult.map((user) => (
                   <UserListItem
                     key={user._id}
                     user={user}

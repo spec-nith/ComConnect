@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Modal,
   ModalOverlay,
@@ -30,6 +30,7 @@ const TaskDialog = ({ isOpen, onClose, workspaceId, selectedChat }) => {
   const [description, setDescription] = useState("");
   const [email, setEmail] = useState("");
   const [attachments, setAttachments] = useState([]);
+  const [tags, setTags] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [channelUsers, setChannelUsers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -42,8 +43,8 @@ const TaskDialog = ({ isOpen, onClose, workspaceId, selectedChat }) => {
   }, [selectedChat]);
 
   // Debounce email search
-  const debouncedEmailSearch = useCallback(
-    debounce((searchTerm) => {
+  const debouncedEmailSearch = useMemo(
+    () => debounce((searchTerm) => {
       if (searchTerm.trim()) {
         const filteredUsers = channelUsers.filter((user) =>
           user.email.toLowerCase().includes(searchTerm.toLowerCase())
@@ -56,14 +57,14 @@ const TaskDialog = ({ isOpen, onClose, workspaceId, selectedChat }) => {
     [channelUsers]
   );
 
+  useEffect(
+    () => () => debouncedEmailSearch.cancel(),
+    [debouncedEmailSearch]
+  );
+
   const handleEmailSearch = (searchTerm) => {
     setEmail(searchTerm);
     debouncedEmailSearch(searchTerm);
-  };
-
-  const selectUser = (selectedUser) => {
-    setEmail(selectedUser.email);
-    setSearchResults([]);
   };
 
   const handleSubmit = async () => {
@@ -87,7 +88,7 @@ const TaskDialog = ({ isOpen, onClose, workspaceId, selectedChat }) => {
         timeout: 5000, // Set timeout to 5 seconds
       };
 
-      const response = await axios.post(
+      await axios.post(
         `${API_URL}/tasks/allocate`,
         {
           heading: heading.trim(),
@@ -95,6 +96,7 @@ const TaskDialog = ({ isOpen, onClose, workspaceId, selectedChat }) => {
           email: email.trim(),
           workspaceId,
           attachments,
+          tags: tags.split(",").map((tag) => tag.trim()).filter(Boolean),
         },
         config
       );
@@ -113,6 +115,7 @@ const TaskDialog = ({ isOpen, onClose, workspaceId, selectedChat }) => {
       setDescription("");
       setEmail("");
       setAttachments([]);
+      setTags("");
       setSearchResults([]);
     } catch (error) {
       console.error("Task allocation error:", {
@@ -134,71 +137,68 @@ const TaskDialog = ({ isOpen, onClose, workspaceId, selectedChat }) => {
 
   return (
     <Modal size="lg" isOpen={isOpen} onClose={onClose} isCentered>
-      <ModalOverlay bg="blackAlpha.700" />
+      <ModalOverlay bg="blackAlpha.800" backdropFilter="blur(4px)" />
       <ModalContent
         pb={4}
         pt={1}
-        bg="#0F1924"
-        color="white"
+        bg="#171c1b"
+        color="#eef4f1"
         border="1px solid"
-        borderColor="#2982db20"
+        borderColor="#3a4541"
       >
-        <ModalHeader color="white">Allocate New Task</ModalHeader>
-        <ModalCloseButton color="white" _hover={{ bg: "#21364A" }} />
+        <ModalHeader color="#eef4f1">Allocate a task</ModalHeader>
+        <ModalCloseButton color="#eef4f1" _hover={{ bg: "#2c3532" }} />
         <ModalBody>
           <Stack spacing={4}>
             <FormControl isRequired>
-              <FormLabel color="gray.300">Heading</FormLabel>
+              <FormLabel color="#bdc8c3">Task name</FormLabel>
               <Input
                 value={heading}
                 onChange={(e) => setHeading(e.target.value)}
                 disabled={loading}
-                bg="#0F1924"
-                borderColor="#2982db20"
-                color="white"
-                _placeholder={{ color: "gray.400" }}
-                _hover={{ borderColor: "#2982db40" }}
+                bg="#202725"
+                borderColor="#3a4541"
+                color="#eef4f1"
+                _placeholder={{ color: "#6f7d77" }}
+                _hover={{ borderColor: "#52615b" }}
                 _focus={{
-                  borderColor: "#21364A",
-                  boxShadow: "0 0 0 1px #21364A",
-                  bg: "#131f2bff",
+                  borderColor: "#34d399",
+                  boxShadow: "0 0 0 1px #34d399",
                 }}
               />
             </FormControl>
             <FormControl isRequired>
-              <FormLabel color="gray.300">Description</FormLabel>
+              <FormLabel color="#bdc8c3">Description</FormLabel>
               <Textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 disabled={loading}
-                bg="#0F1924"
-                borderColor="#2982db20"
-                color="white"
-                _placeholder={{ color: "gray.400" }}
-                _hover={{ borderColor: "#2982db40" }}
+                bg="#202725"
+                borderColor="#3a4541"
+                color="#eef4f1"
+                _placeholder={{ color: "#6f7d77" }}
+                _hover={{ borderColor: "#52615b" }}
                 _focus={{
-                  borderColor: "#21364A",
-                  boxShadow: "0 0 0 1px #21364A",
-                  bg: "#131f2bff",
+                  borderColor: "#34d399",
+                  boxShadow: "0 0 0 1px #34d399",
                 }}
               />
             </FormControl>
             <FormControl isRequired position="relative">
-              <FormLabel color="gray.300">Assignee Email</FormLabel>
+              <FormLabel color="#bdc8c3">Assignee email</FormLabel>
               <Input
                 value={email}
                 onChange={(e) => handleEmailSearch(e.target.value)}
                 placeholder="Type to search users in channel"
                 disabled={loading}
-                bg="#0F1924"
-                borderColor="#2982db20"
-                color="white"
-                _placeholder={{ color: "gray.400" }}
-                _hover={{ borderColor: "#2982db40" }}
+                bg="#202725"
+                borderColor="#3a4541"
+                color="#eef4f1"
+                _placeholder={{ color: "#6f7d77" }}
+                _hover={{ borderColor: "#52615b" }}
                 _focus={{
-                  borderColor: "#21364A",
-                  boxShadow: "0 0 0 1px #21364A",
-                  bg: "#131f2bff",
+                  borderColor: "#34d399",
+                  boxShadow: "0 0 0 1px #34d399",
                 }}
               />
               {searchResults.length > 0 && (
@@ -207,14 +207,14 @@ const TaskDialog = ({ isOpen, onClose, workspaceId, selectedChat }) => {
                   top="100%"
                   left={0}
                   right={0}
-                  bg="#21364A"
+                  bg="#202725"
                   boxShadow="lg"
                   borderRadius="md"
                   maxH="200px"
                   overflowY="auto"
                   zIndex={1000}
                   border="1px solid"
-                  borderColor="#2982db20"
+                  borderColor="#3a4541"
                 >
                   <List spacing={2}>
                     {searchResults.map((user) => (
@@ -222,8 +222,8 @@ const TaskDialog = ({ isOpen, onClose, workspaceId, selectedChat }) => {
                         key={user._id}
                         p={2}
                         cursor="pointer"
-                        color="white"
-                        _hover={{ bg: "#2982db20" }}
+                        color="#eef4f1"
+                        _hover={{ bg: "#2c3532" }}
                         onClick={() => {
                           setEmail(user.email);
                           setSearchResults([]);
@@ -237,33 +237,43 @@ const TaskDialog = ({ isOpen, onClose, workspaceId, selectedChat }) => {
               )}
             </FormControl>
             <FormControl>
-              <FormLabel color="gray.300">Attachments</FormLabel>
+              <FormLabel color="#bdc8c3">Attachment links</FormLabel>
               <Input
                 value={attachments}
                 onChange={(e) => setAttachments(e.target.value.split(","))}
                 placeholder="Enter attachment URLs separated by commas"
-                bg="#0F1924"
-                borderColor="#2982db20"
-                color="white"
-                _placeholder={{ color: "gray.400" }}
-                _hover={{ borderColor: "#2982db40" }}
+                bg="#202725"
+                borderColor="#3a4541"
+                color="#eef4f1"
+                _placeholder={{ color: "#6f7d77" }}
+                _hover={{ borderColor: "#52615b" }}
                 _focus={{
-                  borderColor: "#21364A",
-                  boxShadow: "0 0 0 1px #21364A",
-                  bg: "#131f2bff",
+                  borderColor: "#34d399",
+                  boxShadow: "0 0 0 1px #34d399",
                 }}
               />
             </FormControl>
+            <FormControl>
+              <FormLabel color="#bdc8c3">Tags</FormLabel>
+              <Input
+                value={tags}
+                onChange={(event) => setTags(event.target.value)}
+                placeholder="venue, urgent, launch"
+                bg="#202725"
+                borderColor="#3a4541"
+                color="#eef4f1"
+              />
+            </FormControl>
             <Button
-              bg="#21364A"
-              color="white"
-              _hover={{ bg: "#192937ff" }}
-              _active={{ bg: "#192937ff" }}
+              bg="#34d399"
+              color="#07120e"
+              _hover={{ bg: "#6ee7b7" }}
+              _active={{ bg: "#10b981" }}
               onClick={handleSubmit}
               isLoading={loading}
               loadingText="Allocating..."
             >
-              Allocate Task
+              Allocate task
             </Button>
           </Stack>
         </ModalBody>

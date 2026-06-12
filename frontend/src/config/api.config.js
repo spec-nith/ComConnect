@@ -1,28 +1,32 @@
-// Define URLs from environment variables
-const PROD_API_URL = "https://comconnect-backend.onrender.com/api";
-const LOCAL_API_URL = "http://localhost:5000/api";
+const configuredOrigin =
+  process.env.REACT_APP_API_URL ||
+  (process.env.NODE_ENV === "production"
+    ? window.location.origin
+    : `${window.location.protocol}//${window.location.hostname}:5000`);
 
-// Add this debug log at the very start
-console.log('Environment Variables:', {
-    PROD_API_URL,
-    LOCAL_API_URL,
-    NODE_ENV: process.env.NODE_ENV,
-    USE_PROD_API: process.env.REACT_APP_USE_PROD_API
-});
+const alignLocalHostname = (origin) => {
+  try {
+    const url = new URL(origin, window.location.origin);
+    const localHosts = new Set(["localhost", "127.0.0.1", "::1"]);
+    if (
+      process.env.NODE_ENV !== "production" &&
+      localHosts.has(url.hostname) &&
+      localHosts.has(window.location.hostname)
+    ) {
+      url.hostname = window.location.hostname;
+    }
+    return url.origin + url.pathname.replace(/\/$/, "");
+  } catch {
+    return origin;
+  }
+};
 
-// Determine which URL to use based on environment
-let API_URL = LOCAL_API_URL;
+const API_ORIGIN = alignLocalHostname(configuredOrigin)
+  .replace(/\/+$/, "")
+  .replace(/\/api$/, "");
+const API_URL = `${API_ORIGIN}/api`;
+const SOCKET_URL = (
+  process.env.REACT_APP_SOCKET_URL || API_ORIGIN
+).replace(/\/+$/, "");
 
-if (process.env.NODE_ENV === 'production' || process.env.REACT_APP_USE_PROD_API === 'true') {
-    API_URL = PROD_API_URL;
-    console.log('Using Production API:', PROD_API_URL);
-} else {
-    console.log('Using Local API:', LOCAL_API_URL);
-}
-
-// Debug logs
-console.log('Environment:', process.env.NODE_ENV);
-console.log('REACT_APP_USE_PROD_API:', process.env.REACT_APP_USE_PROD_API);
-console.log('Final API_URL:', API_URL);
-
-export { API_URL };
+export { API_ORIGIN, API_URL, SOCKET_URL };

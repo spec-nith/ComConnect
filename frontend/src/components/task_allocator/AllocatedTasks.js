@@ -1,87 +1,66 @@
-import React, { useState, useEffect, useCallback } from "react";
+import { Box, Flex, SimpleGrid, Skeleton, Text, useToast } from "@chakra-ui/react";
 import axios from "axios";
-import { Box, VStack, Text, useToast, Spinner, Center } from "@chakra-ui/react";
-import TaskCard from "./TaskCard";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChatState } from "../../Context/ChatProvider";
 import { API_URL } from "../../config/api.config";
+import TaskCard from "./TaskCard";
 
-const AllocatedTasks = () => {
+const AllocatedTasks = ({ workspaceId }) => {
   const { user } = ChatState();
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const toast = useToast();
-
-  const config = {
-    headers: {
-      Authorization: `Bearer ${user?.token}`,
-      "Content-Type": "application/json"
-    },
-    timeout: 5000
-  };
+  const config = useMemo(
+    () => ({
+      headers: { Authorization: `Bearer ${user?.token}` },
+    }),
+    [user?.token]
+  );
 
   const fetchAllocatedTasks = useCallback(async () => {
-    if (!user?.token) return;
-
+    if (!user?.token || !workspaceId) return;
+    setLoading(true);
     try {
-      setLoading(true);
-      console.log('Fetching allocated tasks from:', `${API_URL}/tasks/allocated-tasks`);
-
       const { data } = await axios.get(
-        `${API_URL}/tasks/allocated-tasks`,
+        `${API_URL}/tasks/allocated-tasks?workspaceId=${workspaceId}`,
         config
       );
-
-      console.log('Allocated tasks response:', data);
       setTasks(data);
     } catch (error) {
-      console.error('Error fetching allocated tasks:', {
-        url: `${API_URL}/tasks/allocated-tasks`,
-        error: error.message,
-        response: error.response?.data
-      });
-
       toast({
-        title: "Error fetching allocated tasks",
-        description: error.response?.data?.message || "Failed to load tasks",
+        title: "Allocated tasks could not be loaded",
+        description: error.response?.data?.message || error.message,
         status: "error",
-        duration: 3000,
-        isClosable: true,
-        position: "top-right"
       });
     } finally {
       setLoading(false);
     }
-  }, [user?.token, toast]);
+  }, [user?.token, workspaceId, config, toast]);
 
   useEffect(() => {
     fetchAllocatedTasks();
   }, [fetchAllocatedTasks]);
 
-  if (loading) {
-    return (
-      <Center h="200px">
-        <Spinner 
-          thickness="4px"
-          speed="0.65s"
-          emptyColor="gray.200"
-          color="blue.500"
-          size="xl"
-        />
-      </Center>
-    );
-  }
-
   return (
-    <Box p={5}>
-      <Text fontSize="4xl" mb={4} fontWeight="500" fontFamily="head" textColor="#fff">
-        Tasks I've Allocated
-      </Text>
-      {tasks.length === 0 ? (
-        <Text color="gray.500" textAlign="center">
-          No tasks allocated yet
-        </Text>
+    <Box mt={9} pt={6} borderTop="1px solid #313b37">
+      <Flex align="end" justify="space-between" mb={4}>
+        <Box>
+          <Text fontSize="lg" fontWeight="750">Tasks I allocated</Text>
+          <Text color="#8f9d97" fontSize="sm">Work you assigned to other members</Text>
+        </Box>
+        <Text color="#6f7d77" fontSize="sm">{tasks.length} total</Text>
+      </Flex>
+      {loading ? (
+        <SimpleGrid columns={{ base: 1, md: 2, xl: 3 }} spacing={3}>
+          <Skeleton h="150px" startColor="#202725" endColor="#2c3532" />
+          <Skeleton h="150px" startColor="#202725" endColor="#2c3532" />
+        </SimpleGrid>
+      ) : tasks.length === 0 ? (
+        <Flex minH="100px" align="center" justify="center" border="1px dashed #3a4541">
+          <Text color="#6f7d77" fontSize="sm">You have not allocated a task yet</Text>
+        </Flex>
       ) : (
-        <VStack spacing={4} align="stretch">
+        <SimpleGrid columns={{ base: 1, md: 2, xl: 3 }} spacing={3}>
           {tasks.map((task) => (
             <TaskCard
               key={task._id}
@@ -90,10 +69,10 @@ const AllocatedTasks = () => {
               config={config}
             />
           ))}
-        </VStack>
+        </SimpleGrid>
       )}
     </Box>
   );
 };
 
-export default AllocatedTasks; 
+export default AllocatedTasks;

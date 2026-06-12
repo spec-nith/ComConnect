@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { BrowserRouter as Router, Route, Routes } from "react-router-dom";
 import Homepage from "./Pages/Homepage";
 import Chatpage from "./Pages/Chatpage";
@@ -15,28 +15,13 @@ import Geo from "./components/geolocation/App";
 import theme from "./theme";
 
 const App = () => {
-  useEffect(() => {
-    const requestNotificationPermission = async () => {
-      try {
-        if ('Notification' in window) {
-          const permission = await Notification.requestPermission();
-          console.log('Notification permission:', permission);
-        }
-      } catch (error) {
-        console.error('Error requesting notification permission:', error);
-      }
-    };
-
-    requestNotificationPermission();
-  }, []);
-
   return (
-    <Router>
+    <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <ChakraProvider theme={theme}>
         <ChatProvider>
           <SocketProvider>
             <WorkspaceProvider>
-              <div className="container">
+              <main className="app-root">
                 <Routes>
                   <Route path="/" element={<Homepage />} />
                   <Route path="/signup" element={<Signup />} />
@@ -48,7 +33,7 @@ const App = () => {
                   <Route path="/my-workspaces" element={<MyWorkspaces />} />
                   <Route path="/workspace/:workspaceId/chats" element={<Chatpage />} />
                 </Routes>
-              </div>
+              </main>
             </WorkspaceProvider>
           </SocketProvider>
         </ChatProvider>
