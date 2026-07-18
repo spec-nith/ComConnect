@@ -7,6 +7,10 @@ const mongoose = require("mongoose");
 
 const connectDatabase = require("../config/db");
 const { errorHandler, notFound } = require("../middleware/errorMiddleware");
+const {
+  closeAnalytics,
+  createAnalyticsHttpMiddleware,
+} = require("../services/opensearchAnalyticsService");
 
 [
   path.resolve(__dirname, "../../.env"),
@@ -81,6 +85,7 @@ const createServiceApp = (serviceName) => {
       dependencies: { mongodb: databaseReady },
     });
   });
+  app.use(createAnalyticsHttpMiddleware(serviceName));
 
   return app;
 };
@@ -114,6 +119,7 @@ const startHttpService = async ({
   startDependencies,
   closeDependencies,
 }) => {
+  process.env.SERVICE_NAME = process.env.SERVICE_NAME || serviceName;
   const app = createServiceApp(serviceName);
   registerRoutes(app);
   attachErrorHandling(app);
@@ -142,6 +148,7 @@ const startHttpService = async ({
     await dependencyCleanup?.();
     await server.comconnectCloseDependencies?.();
     await closeDependencies?.();
+    await closeAnalytics();
   });
   return { app, server };
 };

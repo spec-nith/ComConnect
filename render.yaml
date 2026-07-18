@@ -57,6 +57,18 @@ services:
         generateValue: true
       - key: AI_SERVICE_TOKEN
         generateValue: true
+      - key: REDIS_HOST
+        fromService:
+          name: comconnect-redis
+          type: keyvalue
+          property: host
+      - key: REDIS_PORT
+        fromService:
+          name: comconnect-redis
+          type: keyvalue
+          property: port
+      - key: KNOWLEDGE_STREAM_KEY
+        value: workspace:knowledge
 
   - type: pserv
     name: comconnect-chat
@@ -106,6 +118,8 @@ services:
         value: chat:messages
       - key: MESSAGE_STREAM_CONSUMER_GROUP
         value: message-persistence
+      - key: KNOWLEDGE_STREAM_KEY
+        value: workspace:knowledge
 
   - type: pserv
     name: comconnect-message-worker
@@ -153,6 +167,52 @@ services:
         value: chat:messages
       - key: MESSAGE_STREAM_CONSUMER_GROUP
         value: message-persistence
+      - key: KNOWLEDGE_STREAM_KEY
+        value: workspace:knowledge
+
+  - type: pserv
+    name: comconnect-knowledge-indexer
+    runtime: docker
+    plan: starter
+    region: oregon
+    dockerfilePath: ./backend/dockerfiles/knowledge-indexer.Dockerfile
+    dockerContext: .
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5107
+      - key: CORS_ORIGIN
+        value: "*"
+      - key: MONGO_URI
+        fromService:
+          name: comconnect-identity
+          type: pserv
+          envVarKey: MONGO_URI
+      - key: AI_SERVICE_TOKEN
+        fromService:
+          name: comconnect-identity
+          type: pserv
+          envVarKey: AI_SERVICE_TOKEN
+      - key: AI_SERVICE_URL
+        value: http://comconnect-ai-engine:5001
+      - key: REDIS_HOST
+        fromService:
+          name: comconnect-redis
+          type: keyvalue
+          property: host
+      - key: REDIS_PORT
+        fromService:
+          name: comconnect-redis
+          type: keyvalue
+          property: port
+      - key: KNOWLEDGE_STREAM_KEY
+        value: workspace:knowledge
+      - key: KNOWLEDGE_DLQ_STREAM_KEY
+        value: workspace:knowledge:dead-letter
+      - key: KNOWLEDGE_STREAM_CONSUMER_GROUP
+        value: knowledge-indexing
 
   - type: pserv
     name: comconnect-tasks
@@ -179,6 +239,18 @@ services:
           name: comconnect-identity
           type: pserv
           envVarKey: JWT_SECRET
+      - key: REDIS_HOST
+        fromService:
+          name: comconnect-redis
+          type: keyvalue
+          property: host
+      - key: REDIS_PORT
+        fromService:
+          name: comconnect-redis
+          type: keyvalue
+          property: port
+      - key: KNOWLEDGE_STREAM_KEY
+        value: workspace:knowledge
 
   - type: pserv
     name: comconnect-notifications
@@ -263,6 +335,18 @@ services:
           envVarKey: AI_SERVICE_TOKEN
       - key: AI_SERVICE_URL
         value: http://comconnect-ai-engine:5001
+      - key: REDIS_HOST
+        fromService:
+          name: comconnect-redis
+          type: keyvalue
+          property: host
+      - key: REDIS_PORT
+        fromService:
+          name: comconnect-redis
+          type: keyvalue
+          property: port
+      - key: KNOWLEDGE_STREAM_KEY
+        value: workspace:knowledge
 
   - type: pserv
     name: comconnect-ai-engine
@@ -286,5 +370,17 @@ services:
         sync: false
       - key: OPENAI_MODEL
         value: gpt-4.1-mini
+      - key: OPENAI_EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: EMBEDDING_DIMENSIONS
+        value: "1536"
+      - key: VECTOR_STORE_BACKEND
+        value: chroma
+      - key: AI_WORKERS
+        value: "1"
+      - key: AI_MODEL_TIMEOUT_SECONDS
+        value: "60"
+      - key: AI_AGENT_RECURSION_LIMIT
+        value: "12"
       - key: CHROMA_DIR
         value: /data/chroma

@@ -2,6 +2,9 @@ const asyncHandler = require("express-async-handler");
 const Workspace = require("../models/workspaceModel");
 const User = require("../models/userModel");
 const Chat = require("../models/chatModel");
+const { queueKnowledgeUpsert } = require("../services/knowledgeIndexService");
+const { buildWorkspaceDocument } = require("../services/workspaceKnowledgeService");
+const { recordAnalyticsEvent } = require("../services/opensearchAnalyticsService");
 
 //@description     Create a new workspace
 //@route           POST /api/workspace
@@ -43,12 +46,22 @@ const createWorkspace = asyncHandler(async (req, res) => {
   const createdGroups = await Chat.insertMany(groups);
   workspace.groups = createdGroups.map((group) => group._id);
   await workspace.save();
+  queueKnowledgeUpsert(workspace._id, [buildWorkspaceDocument(workspace)]).catch(
+    (error) => console.error("Unable to queue workspace indexing:", error.message)
+  );
 
   const userDoc = await User.findById(user._id);
   if (!userDoc.workspaces.includes(workspace._id)) {
     userDoc.workspaces.push(workspace._id);
     await userDoc.save();
   }
+  recordAnalyticsEvent("workspace.created", {
+    request_id: req.requestId,
+    actor_user_id: user._id.toString(),
+    workspace_id: workspace._id.toString(),
+    role_count: normalizedRoles.length,
+    group_count: createdGroups.length,
+  });
 
   res.status(201).json({
     workspace,
@@ -93,6 +106,16 @@ const addRole = asyncHandler(async (req, res) => {
   workspace.roles.push({ roleName, users: [] });
   workspace.groups.push(group._id);
   await workspace.save();
+  queueKnowledgeUpsert(workspace._id, [buildWorkspaceDocument(workspace)]).catch(
+    (error) => console.error("Unable to queue workspace indexing:", error.message)
+  );
+  recordAnalyticsEvent("workspace.role_created", {
+    request_id: req.requestId,
+    actor_user_id: req.user._id.toString(),
+    workspace_id: workspace._id.toString(),
+    role_name: roleName,
+    group_id: group._id.toString(),
+  });
 
   res.status(201).json({ workspace, group });
 });
@@ -171,6 +194,13 @@ const joinWorkspace = asyncHandler(async (req, res) => {
     userDoc.workspaces.push(workspace._id);
     await userDoc.save();
   }
+  recordAnalyticsEvent("workspace.joined", {
+    request_id: req.requestId,
+    actor_user_id: user._id.toString(),
+    workspace_id: workspace._id.toString(),
+    group_id: group._id.toString(),
+    role_name: group.chatName,
+  });
 
   res.status(200).json({
     message: "Successfully joined the workspace role channel.",
@@ -183,8 +213,16 @@ const joinWorkspace = asyncHandler(async (req, res) => {
 const getUserWorkspaces = asyncHandler(async (req, res) => {
     const user = req.user;  
 
-    const workspaces = await Workspace.find({ users: user._id });
-    res.status(200).json(workspaces);
+    const workspaces = await Workspace.find({ users: user._id })
+      .populate("users", "name pic email")
+      .lean();
+    res.status(200).json(
+      workspaces.map((workspace) => ({
+        ...workspace,
+        members: workspace.users || [],
+        memberCount: workspace.users?.length || 0,
+      }))
+    );
 });
 
 

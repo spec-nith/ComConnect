@@ -9,6 +9,7 @@
     "start:identity": "node microservices/identityServer.js",
     "start:chat": "node microservices/chatServer.js",
     "start:message-worker": "node microservices/messageWorkerServer.js",
+    "start:knowledge-indexer": "node microservices/knowledgeIndexerServer.js",
     "start:tasks": "node microservices/taskServer.js",
     "start:notifications": "node microservices/notificationServer.js",
     "start:ai": "node microservices/aiOrchestratorServer.js",
@@ -18,6 +19,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@opensearch-project/opensearch": "^3.6.0",
     "@socket.io/redis-adapter": "^8.3.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",

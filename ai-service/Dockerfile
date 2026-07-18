@@ -9,4 +9,4 @@ COPY ai-service/ .
 
 EXPOSE 5001
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5001", "--workers", "2", "--timeout", "120", "run:app"]
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:5001 --workers ${AI_WORKERS:-2} --timeout 120 run:app"]

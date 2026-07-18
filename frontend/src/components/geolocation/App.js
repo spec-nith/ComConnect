@@ -11,6 +11,8 @@ const normalizeUsers = (payload) => {
   if (payload && typeof payload === "object") return Object.values(payload);
   return [];
 };
+const LOCATION_FRESH_MS = 30000;
+const SHARED_LOCATION_FRESH_MS = 120000;
 
 const Geo = () => {
   const { user } = ChatState();
@@ -24,10 +26,26 @@ const Geo = () => {
   const [isSharing, setIsSharing] = useState(false);
   const [locationError, setLocationError] = useState("");
   const watchIdRef = useRef(null);
+  const refreshTimerRef = useRef(null);
+  const latestLocationRef = useRef(null);
+  const isSharingRef = useRef(false);
+
+  const emitLatestLocation = useCallback(() => {
+    if (!socket.connected || !isSharingRef.current || !latestLocationRef.current) {
+      return;
+    }
+    socket.emit("location-update", latestLocationRef.current);
+  }, []);
 
   const publishLocation = useCallback(
     (position) => {
       if (!user?._id) return;
+      const positionTimestamp = Number(position.timestamp || 0);
+      const ageMs = positionTimestamp ? Date.now() - positionTimestamp : 0;
+      if (ageMs > LOCATION_FRESH_MS) {
+        setLocationError("Waiting for a fresh GPS update...");
+        return;
+      }
 
       const locationData = {
         latitude: position.coords.latitude,
@@ -38,13 +56,15 @@ const Geo = () => {
         userPic: user.pic,
         workspaceId,
         timestamp: Date.now(),
+        sourceTimestamp: positionTimestamp || Date.now(),
       };
 
       setLocation(locationData);
+      latestLocationRef.current = locationData;
       setLocationError("");
-      if (socket.connected) socket.emit("location-update", locationData);
+      emitLatestLocation();
     },
-    [user, workspaceId]
+    [emitLatestLocation, user, workspaceId]
   );
 
   const stopSharing = useCallback(() => {
@@ -52,6 +72,13 @@ const Geo = () => {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
+    if (refreshTimerRef.current) {
+      window.clearInterval(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+    setLocation(null);
+    latestLocationRef.current = null;
+    isSharingRef.current = false;
     setIsSharing(false);
     if (socket.connected) {
       socket.emit("location-sharing-stopped", {
@@ -68,9 +95,36 @@ const Geo = () => {
     }
 
     setLocationError("");
+    isSharingRef.current = true;
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    if (refreshTimerRef.current) {
+      window.clearInterval(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+    navigator.geolocation.getCurrentPosition(
+      publishLocation,
+      (error) => {
+        isSharingRef.current = false;
+        setIsSharing(false);
+        setLocationError(
+          error.code === error.PERMISSION_DENIED
+            ? "Location permission was denied. Enable it in your browser settings."
+            : "Your current location could not be determined. Waiting for live updates."
+        );
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0,
+      }
+    );
     watchIdRef.current = navigator.geolocation.watchPosition(
       publishLocation,
       (error) => {
+        isSharingRef.current = false;
         setIsSharing(false);
         setLocationError(
           error.code === error.PERMISSION_DENIED
@@ -81,15 +135,29 @@ const Geo = () => {
       {
         enableHighAccuracy: true,
         timeout: 15000,
-        maximumAge: 5000,
+        maximumAge: 0,
       }
     );
+    refreshTimerRef.current = window.setInterval(() => {
+      navigator.geolocation.getCurrentPosition(
+        publishLocation,
+        () => {},
+        {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 0,
+        }
+      );
+    }, 10000);
     setIsSharing(true);
-  }, [publishLocation]);
+    emitLatestLocation();
+  }, [emitLatestLocation, publishLocation]);
 
   useEffect(() => {
     if (!user?.token) return undefined;
 
+    setLocation(null);
+    setOtherUsers(new Map());
     socket.auth = { token: user.token };
     if (!socket.connected) socket.connect();
 
@@ -100,16 +168,23 @@ const Geo = () => {
     };
     const handleDisconnect = () => setConnectionStatus("disconnected");
     const handleLocations = (payload) => {
+      const now = Date.now();
       const users = normalizeUsers(payload).filter((member) => {
         if (!member?.userId || member.userId === user._id) return false;
+        if (member.timestamp && now - Number(member.timestamp) > SHARED_LOCATION_FRESH_MS) {
+          return false;
+        }
         return !member.workspaceId || !workspaceId || member.workspaceId === workspaceId;
       });
       setOtherUsers(new Map(users.map((member) => [member.userId, member])));
+      emitLatestLocation();
     };
     const handleLocation = (member) => {
+      const timestamp = Number(member?.timestamp || 0);
       if (
         !member?.userId ||
         member.userId === user._id ||
+        (timestamp && Date.now() - timestamp > SHARED_LOCATION_FRESH_MS) ||
         (member.workspaceId && workspaceId && member.workspaceId !== workspaceId)
       ) {
         return;
@@ -137,6 +212,7 @@ const Geo = () => {
     socket.on("user-location-updated", handleLocation);
     socket.on("user-location-removed", removeLocation);
     socket.on("location-error", handleLocationError);
+    socket.on("location-workspace-joined", emitLatestLocation);
     if (socket.connected) joinMap();
 
     return () => {
@@ -148,8 +224,9 @@ const Geo = () => {
       socket.off("user-location-updated", handleLocation);
       socket.off("user-location-removed", removeLocation);
       socket.off("location-error", handleLocationError);
+      socket.off("location-workspace-joined", emitLatestLocation);
     };
-  }, [stopSharing, user?._id, user?.token, workspaceId]);
+  }, [emitLatestLocation, stopSharing, user?._id, user?.token, workspaceId]);
 
   if (!user) return null;
 

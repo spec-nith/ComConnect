@@ -29,6 +29,7 @@ import { FiCpu } from "react-icons/fi";
 
 import { API_URL } from "../../config/api.config";
 import { ChatState } from "../../Context/ChatProvider";
+import VoiceAgentPanel from "./VoiceAgentPanel";
 
 const WorkspaceAssistant = ({ workspaceId, onTasksCreated }) => {
   const { user } = ChatState();
@@ -43,6 +44,8 @@ const WorkspaceAssistant = ({ workspaceId, onTasksCreated }) => {
   const [plan, setPlan] = useState(null);
   const [coordinatorReport, setCoordinatorReport] = useState(null);
   const [approvalToken, setApprovalToken] = useState(null);
+  const [coordinatorApprovalToken, setCoordinatorApprovalToken] = useState(null);
+  const [agentTrace, setAgentTrace] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const config = {
@@ -87,26 +90,30 @@ const WorkspaceAssistant = ({ workspaceId, onTasksCreated }) => {
       );
       setPlan(data.plan);
       setApprovalToken(data.approvalToken);
+      setCoordinatorReport(null);
+      setCoordinatorApprovalToken(null);
+      setAgentTrace(data.agent);
     });
 
-  const applyPlan = () =>
+  const applyPlan = (token = approvalToken, source = "Task plan") =>
     runRequest(
       async () => {
         await axios.post(
           `${API_URL}/ai/workspaces/${workspaceId}/task-plan/apply`,
-          { approvalToken },
+          { approvalToken: token },
           config
         );
       },
       () => {
         toast({
-          title: "Task plan applied",
+          title: `${source} applied`,
           status: "success",
           duration: 3000,
           isClosable: true,
         });
         setPlan(null);
         setApprovalToken(null);
+        setCoordinatorApprovalToken(null);
         onTasksCreated?.();
       }
     );
@@ -119,6 +126,10 @@ const WorkspaceAssistant = ({ workspaceId, onTasksCreated }) => {
         config
       );
       setCoordinatorReport(data.report);
+      setCoordinatorApprovalToken(data.approvalToken);
+      setPlan(null);
+      setApprovalToken(null);
+      setAgentTrace(data.agent);
     });
 
   const renderReportList = (title, items) => (
@@ -169,7 +180,7 @@ const WorkspaceAssistant = ({ workspaceId, onTasksCreated }) => {
         Agents
       </Button>
 
-      <Modal isOpen={isOpen} onClose={onClose} size="xl" isCentered>
+      <Modal isOpen={isOpen} onClose={onClose} size="2xl" isCentered>
         <ModalOverlay bg="blackAlpha.800" backdropFilter="blur(4px)" />
         <ModalContent bg="#171c1b" color="#eef4f1" border="1px solid #3a4541">
           <ModalHeader borderBottom="1px solid #313b37">
@@ -185,6 +196,7 @@ const WorkspaceAssistant = ({ workspaceId, onTasksCreated }) => {
                 <Tab>Ask Workspace</Tab>
                 <Tab>Plan Tasks</Tab>
                 <Tab>Event Coordinator</Tab>
+                <Tab>Voice Agent</Tab>
               </TabList>
               <TabPanels>
                 <TabPanel px={0}>
@@ -309,24 +321,75 @@ const WorkspaceAssistant = ({ workspaceId, onTasksCreated }) => {
                           coordinatorReport.follow_up_tasks
                         )}
                         {renderReportList("Risks", coordinatorReport.risks)}
+                        {coordinatorReport.proposed_tasks?.length > 0 && (
+                          <Box>
+                            <Text fontSize="sm" color="gray.400" mb={2}>
+                              Approval-gated tasks drafted by the agent
+                            </Text>
+                            <List spacing={2}>
+                              {coordinatorReport.proposed_tasks.map((task, index) => (
+                                <ListItem
+                                  key={`${task.heading}-${index}`}
+                                  p={2}
+                                  border="1px solid #313b37"
+                                  bg="#202725"
+                                  borderRadius="6px"
+                                  fontSize="sm"
+                                >
+                                  <Text fontWeight="semibold">{task.heading}</Text>
+                                  <Text color="gray.300">{task.description}</Text>
+                                  <Text fontSize="xs" color="gray.400" mt={1}>
+                                    {task.assigneeEmail} - {task.priority}
+                                  </Text>
+                                </ListItem>
+                              ))}
+                            </List>
+                          </Box>
+                        )}
                       </Box>
                     )}
                   </VStack>
+                </TabPanel>
+                <TabPanel px={0}>
+                  <VoiceAgentPanel
+                    workspaceId={workspaceId}
+                    onTasksCreated={onTasksCreated}
+                  />
                 </TabPanel>
               </TabPanels>
             </Tabs>
           </ModalBody>
           <ModalFooter>
+            {agentTrace?.tool_call_count > 0 && (
+              <Text fontSize="xs" color="#8f9d97" mr="auto">
+                Agent used {agentTrace.tool_call_count} tools:{" "}
+                {[...new Set(agentTrace.tools_called)].join(", ")}
+              </Text>
+            )}
             {plan && (
               <Button
                 bg="#34d399"
                 color="#07120e"
                 _hover={{ bg: "#6ee7b7" }}
                 mr={3}
-                onClick={applyPlan}
+                onClick={() => applyPlan()}
                 isLoading={loading}
               >
                 Approve and Create Tasks
+              </Button>
+            )}
+            {coordinatorApprovalToken && (
+              <Button
+                bg="#34d399"
+                color="#07120e"
+                _hover={{ bg: "#6ee7b7" }}
+                mr={3}
+                onClick={() =>
+                  applyPlan(coordinatorApprovalToken, "Coordinator follow-up")
+                }
+                isLoading={loading}
+              >
+                Approve Follow-up Tasks
               </Button>
             )}
             <Button variant="ghost" color="#bdc8c3" onClick={onClose} _hover={{ bg: "#202725" }}>

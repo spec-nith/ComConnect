@@ -64,6 +64,28 @@
   color: #effcf6;
 }
 
+.message-status {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: 2px;
+  color: #b8c6bf;
+  line-height: 1;
+}
+
+.message-status svg {
+  width: 13px;
+  height: 13px;
+}
+
+.message-status svg + svg {
+  margin-left: -7px;
+}
+
+.message-status--read {
+  color: #6ee7b7;
+}
+
 @media (max-width: 640px) {
   .message-feed {
     padding: 14px 8px 12px;

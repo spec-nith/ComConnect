@@ -36,6 +36,24 @@ const indexWorkspace = (workspaceId, documents) =>
     body: JSON.stringify({ documents }),
   });
 
+const upsertWorkspaceDocuments = (workspaceId, documents) =>
+  requestAiService(`/v1/workspaces/${workspaceId}/documents/upsert`, {
+    method: "POST",
+    body: JSON.stringify({ documents }),
+  });
+
+const resetWorkspaceDocuments = (workspaceId) =>
+  requestAiService(`/v1/workspaces/${workspaceId}/documents/reset`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+
+const deleteWorkspaceDocuments = (workspaceId, ids) =>
+  requestAiService(`/v1/workspaces/${workspaceId}/documents/delete`, {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+
 const askWorkspace = (workspaceId, question) =>
   requestAiService(`/v1/workspaces/${workspaceId}/ask`, {
     method: "POST",
@@ -48,16 +66,16 @@ const searchWorkspace = (workspaceId, query, tags = [], limit = 12) =>
     body: JSON.stringify({ query, tags, limit }),
   });
 
-const planTasks = (workspaceId, request, members) =>
+const planTasks = (workspaceId, request, members, tasks) =>
   requestAiService(`/v1/workspaces/${workspaceId}/task-plan`, {
     method: "POST",
-    body: JSON.stringify({ request, members }),
+    body: JSON.stringify({ request, members, tasks }),
   });
 
-const coordinateEvent = (workspaceId, question, members) =>
+const coordinateEvent = (workspaceId, question, members, tasks) =>
   requestAiService(`/v1/workspaces/${workspaceId}/event-coordinator`, {
     method: "POST",
-    body: JSON.stringify({ question, members }),
+    body: JSON.stringify({ question, members, tasks }),
   });
 
 const summarizeChat = (chatName, messages) =>
@@ -66,11 +84,21 @@ const summarizeChat = (chatName, messages) =>
     body: JSON.stringify({ chatName, messages }),
   });
 
+const answerChat = (chatName, question, messages) =>
+  requestAiService("/v1/chats/answer", {
+    method: "POST",
+    body: JSON.stringify({ chatName, question, messages }),
+  });
+
 module.exports = {
+  answerChat,
   askWorkspace,
   coordinateEvent,
+  deleteWorkspaceDocuments,
   indexWorkspace,
   planTasks,
+  resetWorkspaceDocuments,
   searchWorkspace,
   summarizeChat,
+  upsertWorkspaceDocuments,
 };

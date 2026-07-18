@@ -75,6 +75,7 @@ jobs:
           build_push identity backend/dockerfiles/identity.Dockerfile
           build_push chat backend/dockerfiles/chat.Dockerfile
           build_push message-worker backend/dockerfiles/message-worker.Dockerfile
+          build_push knowledge-indexer backend/dockerfiles/knowledge-indexer.Dockerfile
           build_push tasks backend/dockerfiles/tasks.Dockerfile
           build_push notifications backend/dockerfiles/notifications.Dockerfile
           build_push ai-orchestrator backend/dockerfiles/ai-orchestrator.Dockerfile

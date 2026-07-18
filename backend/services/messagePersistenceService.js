@@ -3,6 +3,9 @@ const Message = require("../models/messageModel");
 const { extractTags } = require("./tagService");
 const User = require("../models/userModel");
 const { queueChatNotifications } = require("./notificationClient");
+const { queueKnowledgeUpsert } = require("./knowledgeIndexService");
+const { buildMessageDocument } = require("./workspaceKnowledgeService");
+const { recordAnalyticsEvent } = require("./opensearchAnalyticsService");
 
 const persistMessage = async ({ eventId, senderId, content, chatId }) => {
   const existing = await Message.findOne({ streamEventId: eventId });
@@ -32,6 +35,7 @@ const persistMessage = async ({ eventId, senderId, content, chatId }) => {
     sender: senderId,
     content,
     chat: chatId,
+    readBy: [senderId],
     tags: extractTags(content),
     streamEventId: eventId,
   });
@@ -65,6 +69,22 @@ const persistMessage = async ({ eventId, senderId, content, chatId }) => {
     },
   }).catch((error) => {
     console.error("Unable to queue chat notifications:", error.message);
+  });
+  if (message.chat.workspace) {
+    queueKnowledgeUpsert(message.chat.workspace, [buildMessageDocument(message)]).catch(
+      (error) => {
+        console.error("Unable to queue message indexing:", error.message);
+      }
+    );
+  }
+  recordAnalyticsEvent("message.sent", {
+    actor_user_id: senderId.toString(),
+    workspace_id: message.chat.workspace?.toString(),
+    chat_id: chatId.toString(),
+    message_id: message._id.toString(),
+    is_group_chat: Boolean(message.chat.isGroupChat),
+    message_length: message.content.length,
+    tags: message.tags || [],
   });
 
   return message;

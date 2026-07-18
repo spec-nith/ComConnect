@@ -1,14 +1,20 @@
 # Workspace AI Assistant
 
-ComConnect uses a separate Flask and LangChain service for workspace-scoped RAG
-and task planning.
+ComConnect uses a separate Flask and LangChain service for workspace-scoped
+hybrid RAG and controlled tool-using agents.
+
+The canonical beginner-friendly guide is
+`docs/workspace-ai-workflows.md`. It covers RAG, tools, approval-gated
+execution, AWS, tradeoffs, failure modes, and MLOps.
 
 ## Security boundary
 
 - Express authenticates the user and verifies workspace membership.
 - Express collects only that workspace's chat messages, tasks, and members.
 - The Flask service is internal and requires `X-Service-Token`.
-- Each workspace has a separate Chroma collection.
+- Local development uses a separate Chroma collection per workspace.
+- AWS production uses a private OpenSearch Serverless collection with mandatory
+  `workspace_id` filters.
 - A generated task plan cannot create tasks directly. Express signs the proposal
   for 30 minutes and creates tasks only after the user explicitly approves it.
 
@@ -36,6 +42,6 @@ POST /api/ai/workspaces/:workspaceId/task-plan
 POST /api/ai/workspaces/:workspaceId/task-plan/apply
 ```
 
-The assistant automatically refreshes its workspace index before answering or
-planning. A content fingerprint avoids embedding unchanged documents again in
-the same backend process.
+The first AI request ensures that an initial workspace backfill exists.
+Afterward, workspace, message, and task changes are incrementally indexed
+through a Redis Stream and a dedicated knowledge-indexer service.

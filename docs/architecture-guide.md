@@ -55,7 +55,7 @@ flowchart LR
   Notify --> Firebase["Firebase Cloud Messaging"]
 
   AIAPI --> AIEngine["Flask + LangChain AI Engine"]
-  AIEngine --> Chroma[("Chroma Vector DB<br/>collection per workspace")]
+  AIEngine --> Vector[("Vector Store<br/>Chroma local, OpenSearch AWS")]
   AIEngine --> Embeddings["Embedding Model"]
   AIEngine --> LLM["Chat Model"]
 
@@ -76,10 +76,11 @@ on the Docker, Render private, or AWS Cloud Map network.
 | Identity service | 5101 | Registration, login, users, workspaces, membership, roles | MongoDB |
 | Chat service | 5102 | Chats, messages, groups, Socket.IO rooms and broadcasts | MongoDB, notification service |
 | Message persistence worker | 5106 | Redis Streams consumer group, idempotent message writes, latest-message updates, dead-letter handling | Redis, MongoDB, notification service |
+| Knowledge indexer | 5107 | Redis Streams consumer, incremental embedding upserts, dead-letter handling | Redis, AI engine |
 | Task service | 5103 | Task assignment, status, comments, workspace task queries | MongoDB |
 | Notification service | 5104 | FCM tokens, Kafka producer/consumer, Redis token cache, push delivery | MongoDB, Redis, Kafka, Firebase |
 | AI orchestrator | 5105 | JWT and workspace authorization, source document assembly, task-plan approvals | MongoDB, AI engine |
-| AI engine | 5001 | LangChain chains, RAG retrieval, structured AI outputs | Chroma, embedding model, chat model |
+| AI engine | 5001 | Hybrid RAG, tool-using agents, structured AI outputs | Chroma/OpenSearch, embedding model, chat model |
 | Frontend | 3000 | Responsive workspace, chat, task, RAG, planner, summary, and coordinator UI | API gateway |
 
 Service entry points live in `backend/microservices`. Service-specific
@@ -228,32 +229,34 @@ The orchestrator builds documents from:
 - task titles, descriptions, assignees, status, priority, and comments
 - attachments can be added later by converting supported files to documents
 
-MongoDB remains the business source of truth. Embeddings are stored in Chroma,
-not MongoDB.
+MongoDB remains the business source of truth. Local embeddings are stored in
+Chroma; AWS production embeddings are stored in OpenSearch Serverless.
 
 ### Indexing
 
 ```mermaid
 sequenceDiagram
-  participant O as AI Orchestrator
-  participant DB as MongoDB
+  participant API as Chat/Task Service
+  participant R as Redis Stream
+  participant W as Knowledge Indexer
   participant F as Flask AI Engine
   participant E as Embedding Model
-  participant V as Chroma
+  participant V as Vector Store
 
-  O->>DB: Load authorized workspace data
-  O->>O: Normalize records into documents
-  O->>F: POST /v1/workspaces/:id/index
+  API->>R: Enqueue changed document
+  W->>R: Consume indexing event
+  W->>F: Upsert changed document
   F->>E: Embed document chunks
   E-->>F: Dense vectors
-  F->>V: Replace workspace collection documents
+  F->>V: Upsert vector document
   V-->>F: Index complete
-  F-->>O: Document count and status
+  F-->>W: Upsert status
+  W->>R: Acknowledge event
 ```
 
-One Chroma collection is created per workspace. Metadata includes the source
-type, source ID, and display label. This prevents the retriever for workspace A
-from searching workspace B.
+Local Chroma uses one collection per workspace. AWS uses one managed collection
+with mandatory `workspace_id` filters. Node authorization remains the first
+isolation boundary.
 
 Example document:
 
@@ -276,13 +279,13 @@ sequenceDiagram
   participant U as User
   participant O as AI Orchestrator
   participant F as Flask AI Engine
-  participant V as Chroma
+  participant V as Vector Store
   participant L as Chat Model
 
   U->>O: Ask workspace question
-  O->>O: Verify membership and refresh changed index
+  O->>O: Verify membership and ensure initial backfill
   O->>F: POST /v1/workspaces/:id/ask
-  F->>V: Embed query and similarity search
+  F->>V: Filtered lexical and vector search with RRF
   V-->>F: Relevant workspace documents
   F->>L: System rules + context + question
   L-->>F: Grounded answer
@@ -413,6 +416,9 @@ flowchart LR
   CloudMap --> Services["Fargate Internal Services"]
   Services --> Redis["Multi-AZ ElastiCache Redis<br/>presence, adapter, streams"]
   Redis --> MW["Fargate message worker"]
+  Redis --> KI["Fargate knowledge indexer"]
+  KI --> AI["Fargate AI engine"]
+  AI --> OS["Private OpenSearch Serverless"]
   Services --> Secrets["Secrets Manager"]
   Services --> Atlas[("MongoDB Atlas")]
   Services --> Kafka[("Managed External Kafka")]

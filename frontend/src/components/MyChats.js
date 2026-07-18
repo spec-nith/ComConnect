@@ -13,15 +13,18 @@ import { FiCheckSquare, FiMap, FiMessageSquare, FiPlus } from "react-icons/fi";
 import { useNavigate, useParams } from "react-router-dom";
 import { ChatState } from "../Context/ChatProvider";
 import { fetchChats } from "../utils/api";
+import { API_URL } from "../config/api.config";
 import { getSender } from "../config/ChatLogics";
 import ChatLoading from "./ChatLoading";
 import GroupChatModal from "./miscellaneous/GroupChatModal";
 import WorkspaceAssistant from "./ai/WorkspaceAssistant";
 import WorkspaceSearch from "./workspace/WorkspaceSearch";
 import BrandMark from "./brand/BrandMark";
+import socket from "../Context/SocketContext";
 
 const MyChats = ({ fetchAgain }) => {
   const [loggedUser, setLoggedUser] = useState();
+  const [presenceByUser, setPresenceByUser] = useState({});
   const { selectedChat, setSelectedChat, user, chats, setChats } = ChatState();
   const { workspaceId } = useParams();
   const toast = useToast();
@@ -59,6 +62,63 @@ const MyChats = ({ fetchAgain }) => {
         : [],
     [chats]
   );
+
+  useEffect(() => {
+    const chatUserIds = (selectedChat?.users || [])
+      .map((chatUser) => (chatUser?._id || chatUser)?.toString())
+      .filter(Boolean);
+
+    if (!selectedChat?._id || !user?.token || chatUserIds.length === 0) {
+      setPresenceByUser({});
+      return undefined;
+    }
+
+    const loadPresence = async () => {
+      try {
+        const response = await fetch(`${API_URL}/chat/presence`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${user.token}`,
+          },
+          body: JSON.stringify({ userIds: chatUserIds }),
+        });
+        if (!response.ok) throw new Error("Could not load presence");
+        const states = await response.json();
+        setPresenceByUser(
+          states.reduce(
+            (presence, state) => ({
+              ...presence,
+              [state.userId]: state,
+            }),
+            {}
+          )
+        );
+      } catch (error) {
+        console.error("Could not load active users:", error);
+        setPresenceByUser({});
+      }
+    };
+
+    const handlePresenceChanged = (state) => {
+      if (!chatUserIds.includes(state.userId)) return;
+      setPresenceByUser((current) => ({
+        ...current,
+        [state.userId]: state,
+      }));
+    };
+
+    loadPresence();
+    socket.on("presence changed", handlePresenceChanged);
+    return () => socket.off("presence changed", handlePresenceChanged);
+  }, [selectedChat, user?.token]);
+
+  const selectedChatUserIds = (selectedChat?.users || [])
+    .map((chatUser) => (chatUser?._id || chatUser)?.toString())
+    .filter(Boolean);
+  const activeUserCount = selectedChatUserIds.filter(
+    (userId) => presenceByUser[userId]?.online
+  ).length;
 
   return (
     <Flex direction="column" h="100dvh" bg="#171c1b" color="#eef4f1">
@@ -127,7 +187,9 @@ const MyChats = ({ fetchAgain }) => {
             Conversations
           </Text>
           <Text fontSize="sm" color="#bdc8c3" mt={1}>
-            {sortedChats.length} active
+            {selectedChat
+              ? `${activeUserCount} active ${activeUserCount === 1 ? "user" : "users"}`
+              : "Select a chat"}
           </Text>
         </Box>
         <FiMessageSquare color="#34d399" />

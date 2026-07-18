@@ -1,542 +1,490 @@
-# Workspace AI Workflows
+# ComConnect AI, RAG, and Agent Architecture
 
-This document explains how the AI features in ComConnect work in code and at
-runtime. It covers:
+This is the canonical guide to the AI features in ComConnect. It is written for
+engineers who are new to RAG, embeddings, vector databases, and agents.
 
-- workspace-scoped RAG
-- task planning agent
-- group chat summarizer
-- event coordinator agent
+## 1. System Overview
 
-## 1. Tech Stack
+ComConnect provides:
 
-AI service:
+1. Workspace question answering grounded in messages and tasks.
+2. Workspace search using keywords, tags, and semantic similarity.
+3. A task-planning agent that researches the workspace and drafts tasks.
+4. An event-coordinator agent that investigates readiness and drafts follow-ups.
+5. A group-chat summarizer.
 
-- Flask for the internal AI HTTP service
-- LangChain for model orchestration and agent-style structured outputs
-- `langchain-openai` for `ChatOpenAI` and `OpenAIEmbeddings`
-- Chroma for per-workspace vector storage
-- Pydantic for structured AI outputs
+The Node AI orchestrator owns authentication, workspace authorization, MongoDB
+data, signed approvals, and business writes. The private Python AI engine owns
+embeddings, retrieval, prompts, LangChain agents, structured model output, and
+vector-store access.
 
-Main app:
+## 2. RAG In Plain English
 
-- React and Chakra UI for the assistant UI
-- Express for authenticated API routes
-- MongoDB and Mongoose for workspace, chat, message, and task data
-- Socket.IO for real-time chat
-- Docker Compose for containerized local development
-
-## 2. Security Model
-
-The frontend never calls the Flask AI service directly.
-
-```mermaid
-sequenceDiagram
-  participant FE as React
-  participant API as Express API
-  participant AI as Flask AI Service
-
-  FE->>API: JWT-authenticated request
-  API->>API: Verify user and workspace/chat access
-  API->>AI: Internal request with X-Service-Token
-  AI-->>API: AI response
-  API-->>FE: Scoped response
-```
-
-Why this matters:
-
-- The AI service does not decide who can read workspace data.
-- Express sends only data the logged-in user is allowed to access.
-- Internal AI routes require `X-Service-Token`.
-- Generated task plans must be approved before tasks are created.
-
-## 3. Workspace-Scoped RAG
-
-Workspace RAG lets users ask questions like:
+An LLM does not automatically know private workspace data. Retrieval-augmented
+generation gives the model selected evidence at request time:
 
 ```text
-What decisions were made about the event budget?
-Which logistics tasks are still pending?
-What was discussed this week about registration?
+question
+  -> retrieve relevant workspace records
+  -> place those records in the prompt
+  -> generate an answer from that evidence
+  -> return the answer and source IDs
 ```
 
-### Data Used
+RAG does not retrain the model.
 
-The backend builds documents from:
+Important terms:
 
-- workspace name and roles
-- recent workspace chat messages
-- workspace tasks, task status, assignees, and comments
+- **Document:** searchable text made from a message, task, or workspace.
+- **Embedding:** a numeric representation of meaning.
+- **Vector search:** finding documents with meanings close to the query.
+- **Lexical search:** word and phrase search, commonly BM25.
+- **Metadata filter:** a strict condition such as workspace, tag, or type.
+- **Fusion:** combining multiple ranked candidate lists.
+- **Grounding:** requiring answers to be supported by supplied evidence.
 
-Snippet from `backend/services/workspaceKnowledgeService.js`:
+## 3. Data Ownership And Isolation
 
-```js
-const [messages, tasks] = await Promise.all([
-  Message.find({ chat: { $in: chatIds } })
-    .sort({ createdAt: -1 })
-    .limit(1000)
-    .populate("sender", "name")
-    .lean(),
-  Task.find({ workspace: workspace._id })
-    .sort({ updatedAt: -1 })
-    .limit(500)
-    .populate("assignee createdBy comments.user", "name email")
-    .lean(),
-]);
+MongoDB is the business source of truth. The vector store is a derived search
+index that can be rebuilt.
+
+Indexed records contain:
+
+- `workspace_id`
+- source type and source ID
+- chat ID when applicable
+- label, tags, and timestamp
+- searchable content
+- embedding vector
+
+Node verifies JWT authentication and workspace membership before calling the AI
+engine. Production retrieval also applies `workspace_id` as a mandatory vector
+store filter. Both checks are required.
+
+## 4. Vector Stores
+
+The backend is selected with `VECTOR_STORE_BACKEND`.
+
+### Local Development
+
+Docker Compose uses Chroma:
+
+```text
+VECTOR_STORE_BACKEND=chroma
+CHROMA_DIR=/data/chroma
 ```
 
-Each document is sent to the Flask service:
+Each workspace has a separate Chroma collection and Docker mounts a persistent
+volume. This is inexpensive and simple for local development.
 
-```js
-const result = await indexWorkspace(workspaceId, documents);
+### AWS Production
+
+AWS uses private OpenSearch Serverless:
+
+```text
+VECTOR_STORE_BACKEND=opensearch
+OPENSEARCH_ENDPOINT=https://...
+OPENSEARCH_INDEX=comconnect-knowledge
 ```
 
-### RAG Indexing Flow
+Terraform creates a vector-search collection, VPC endpoint, encryption policy,
+private network policy, AI-specific task role, and data-access policy.
+
+OpenSearch is selected for AWS because it supports shared durable storage,
+metadata filtering, lexical search, vector search, and horizontal AI-engine
+scaling. Embedded Chroma storage inside a Fargate task does not provide those
+properties.
+
+## 5. Knowledge Ingestion
+
+Earlier code rebuilt and re-embedded the complete workspace during normal
+questions. The current design indexes writes incrementally:
 
 ```mermaid
 sequenceDiagram
-  participant API as Express
+  participant API as Chat/Task Service
   participant DB as MongoDB
-  participant AI as Flask AI Service
-  participant VDB as Chroma
+  participant R as Redis Stream
+  participant W as Knowledge Indexer
+  participant AI as AI Engine
+  participant V as Vector Store
 
-  API->>DB: Load workspace chats, messages, tasks
-  API->>API: Convert records into text documents
-  API->>AI: POST /v1/workspaces/:workspaceId/index
-  AI->>VDB: Replace documents in workspace collection
+  API->>DB: Create or update record
+  API->>R: Enqueue knowledge upsert
+  W->>R: Consume event
+  W->>AI: Upsert changed document
+  AI->>AI: Generate embedding
+  AI->>V: Upsert vector
+  W->>R: Acknowledge event
 ```
 
-### How Embeddings Are Stored
+Events are emitted for workspace changes, new messages, task creation, task
+status updates, comments, and approved agent-created tasks.
 
-The app does not store raw embeddings in MongoDB. MongoDB remains the source of
-truth for business data. The AI service converts workspace documents into
-embeddings and stores those vectors in Chroma.
+Failures go to `workspace:knowledge:dead-letter`. MongoDB writes remain valid
+even when indexing is temporarily unavailable.
 
-Step by step:
+### Initial Backfill
 
-1. Express loads authorized workspace data from MongoDB.
-2. Express converts each message/task/workspace record into plain text.
-3. Express sends those documents to the internal Flask route.
-4. Flask creates one Chroma collection per workspace.
-5. Chroma calls `OpenAIEmbeddings` to convert text into vectors.
-6. Chroma stores each vector with metadata like source type, label, and source
-   id.
+Existing workspaces need one full index. `WorkspaceKnowledgeState` records that
+the backfill completed, so a process restart does not trigger another rebuild.
 
-Document example sent from Express to Flask:
-
-```json
-{
-  "id": "task-665f...",
-  "content": "Task: Confirm auditorium booking\nDescription: Call admin office...\nStatus: to-do\nAssignee: Priya <priya@example.com>\nComments: None",
-  "metadata": {
-    "type": "task",
-    "label": "Confirm auditorium booking",
-    "source_id": "665f..."
-  }
-}
-```
-
-Flask stores each workspace in its own Chroma collection:
-
-```py
-def workspace_store(workspace_id):
-    return Chroma(
-        collection_name=_collection_name(workspace_id),
-        embedding_function=_embeddings(),
-        persist_directory=current_app.config["CHROMA_DIR"],
-    )
-```
-
-This means workspace A and workspace B do not share a vector collection. A query
-inside one workspace retrieves only that workspace's indexed context.
-
-When a workspace is re-indexed, the current implementation replaces that
-workspace collection's documents:
-
-```py
-existing = store.get(include=[])
-if existing["ids"]:
-    store.delete(ids=existing["ids"])
-
-store.add_documents(documents=documents, ids=ids)
-```
-
-The backend also computes a content fingerprint before indexing. If messages and
-tasks have not changed in the current backend process, it can skip unnecessary
-re-embedding.
-
-### Ask Flow
-
-Frontend call:
-
-```js
-await axios.post(
-  `${API_URL}/ai/workspaces/${workspaceId}/ask`,
-  { question },
-  { headers: { Authorization: `Bearer ${user.token}` } }
-);
-```
-
-Express route:
+The explicit endpoint is:
 
 ```text
-POST /api/ai/workspaces/:workspaceId/ask
+POST /api/ai/workspaces/:workspaceId/sync
 ```
 
-Internal Flask route:
+The first AI request can perform a missing backfill, but production deployment
+should backfill existing workspaces before opening traffic.
+
+### Consistency Tradeoff
+
+Incremental indexing is eventually consistent. A new message may take a short
+time to become semantically searchable. This is preferable to making every user
+write wait for an external embedding request.
+
+## 6. Search And RAG Are Different
+
+Workspace search returns records. Workspace question answering generates a
+natural-language answer.
+
+### Small Workspace Search
+
+At or below `WORKSPACE_RAG_MESSAGE_THRESHOLD`, default `200`, search uses:
+
+- MongoDB case-insensitive text matching
+- stored tags
+- hashtags found in content
+- recent-first ordering
+
+No LLM or embedding call is made.
+
+The threshold refers to total workspace message count, not the length of the
+user's query.
+
+### Large Workspace Search
+
+Above the threshold, the application runs MongoDB keyword/tag search and vector
+retrieval, then merges and deduplicates the results. If vector retrieval fails,
+the database results still work.
+
+### Production Hybrid Retrieval
+
+The OpenSearch backend runs:
+
+1. lexical search over label, tags, and content
+2. semantic k-nearest-neighbor search over embeddings
+3. strict workspace and optional tag/type filters
+4. Reciprocal Rank Fusion (RRF)
 
 ```text
-POST /v1/workspaces/:workspaceId/ask
+RRF score = sum(1 / (RRF_K + rank))
 ```
 
-LangChain prompt behavior:
+RRF combines ranks because BM25 scores and vector scores are not directly
+comparable.
 
-- retrieve relevant Chroma documents
-- answer only from workspace context
-- return source labels
-- ignore instructions embedded inside retrieved messages/tasks
+## 7. Workspace Question Answering
 
-Snippet from `ai-service/app/chains.py`:
-
-```py
-documents = retrieve(workspace_id, question)
-response = _model().invoke([
-    SystemMessage(content="You are ComConnect's workspace assistant..."),
-    HumanMessage(content=f"Context:\n{_context(documents)}\n\nQuestion: {question}"),
-])
-```
-
-### Query-To-Answer Flow
-
-When a user asks:
-
-```text
-What tasks are still pending for tomorrow?
-```
-
-the flow is:
-
-1. React sends the question to Express with the user's JWT.
-2. Express verifies the user belongs to the workspace.
-3. Express refreshes the workspace index if the source data changed.
-4. Flask embeds the user's question.
-5. Chroma compares that query vector against stored message/task/workspace
-   vectors.
-6. Chroma returns the most similar documents.
-7. Flask builds a prompt that contains:
-   - system instructions
-   - retrieved workspace context
-   - the user's question
-8. `ChatOpenAI` generates an answer using only the retrieved context.
-9. Flask returns the answer plus source metadata.
-10. React shows the answer and source labels in the assistant modal.
-
-The key idea is that the LLM does not search MongoDB directly. It receives a
-small, relevant context window selected by vector similarity.
-
-Example response:
-
-```json
-{
-  "answer": "The venue booking is still pending approval [2].",
-  "sources": [
-    { "type": "task", "label": "Confirm auditorium booking" }
-  ]
-}
-```
-
-## 4. Task Planning Agent
-
-The task planner turns a natural-language request into a structured task plan.
-
-Example prompt:
-
-```text
-Create a practical launch plan for the registration desk.
-```
-
-### Planner Flow
+Question answering always uses RAG:
 
 ```mermaid
 sequenceDiagram
-  participant FE as React Assistant
-  participant API as Express
-  participant AI as Flask LangChain Agent
-  participant DB as MongoDB
+  participant U as User
+  participant O as Node Orchestrator
+  participant AI as AI Engine
+  participant V as Vector Store
+  participant M as Model
 
-  FE->>API: POST /api/ai/workspaces/:id/task-plan
-  API->>DB: Verify workspace membership
-  API->>AI: Send request, workspace context, members
-  AI-->>API: Structured TaskPlan
-  API->>API: Sign approval token
-  API-->>FE: Proposed plan
-  FE->>API: POST /task-plan/apply
-  API->>DB: Create tasks after approval
+  U->>O: Ask question
+  O->>O: Verify user and workspace
+  O->>O: Ensure initial index exists
+  O->>AI: Internal authorized request
+  AI->>V: Hybrid workspace-filtered retrieval
+  V-->>AI: Relevant documents
+  AI->>M: Evidence plus question
+  M-->>AI: Grounded answer
+  AI-->>U: Answer and source IDs
 ```
 
-### How Planning Uses RAG
+The prompt requires the model to use supplied evidence, admit missing evidence,
+cite source numbers, and ignore instructions embedded inside retrieved records.
+Retrieved workspace content is always treated as untrusted.
 
-The task planner uses the same workspace RAG index, but instead of answering a
-question directly, it creates a structured plan.
+## 8. What Makes The Agents Agents
 
-For a request like:
+The task planner and event coordinator use LangChain `create_agent` with real
+tools. The model can choose tools, inspect results, call more tools, and then
+produce a structured response.
+
+### `search_workspace_knowledge`
+
+Searches messages and tasks through the hybrid retrieval layer.
+
+### `list_workspace_tasks`
+
+Reads structured tasks filtered by status, assignee, or tag. Exact business
+facts should come from structured data when possible.
+
+### `inspect_member_workload`
+
+Deterministically counts to-do, in-progress, completed, and open high-priority
+tasks for a workspace member.
+
+### `draft_task`
+
+Creates a validated in-memory task draft. It verifies workspace membership,
+priority, schema limits, duplicates, and the maximum task count.
+
+It does not write to MongoDB.
+
+## 9. Controlled Execution
+
+Unrestricted LLM database tools are not appropriate here. ComConnect separates
+agent reasoning from business execution:
 
 ```text
-Plan all tasks needed for tomorrow's registration desk.
+agent researches
+  -> agent calls draft_task
+  -> backend validates drafts
+  -> backend signs a 30-minute approval token
+  -> user reviews and approves
+  -> backend verifies token, user, workspace, and assignees
+  -> backend writes MongoDB
+  -> index event is emitted
 ```
 
-the service retrieves context about:
+The signed token contains the exact executable tasks and a one-time execution
+ID. Replaying an already executed token returns `409` instead of creating
+duplicate tasks. The model cannot change the payload after approval is issued.
 
-- current registration-related chat messages
-- existing pending registration tasks
-- workspace roles and members
-- comments that mention blockers or deadlines
+This is a real agent design with a controlled action boundary. Production agents
+do not need unrestricted autonomy; constrained tools and explicit approval are
+usually safer and easier to audit.
 
-That context is passed to a LangChain `create_agent` call with a Pydantic output
-schema. The schema forces the response to be machine-readable instead of loose
-chat text.
+## 10. Task Planning Agent
 
-The AI output is constrained by Pydantic:
+The agent receives the request and member list. It should:
 
-```py
-class PlannedTask(BaseModel):
-    heading: str
-    description: str
-    assignee_email: str | None = None
-    priority: Literal["low", "medium", "high"] = "medium"
+1. Search workspace evidence.
+2. Inspect existing tasks to avoid duplication.
+3. Inspect member workload before assignment.
+4. Call `draft_task` for every proposed action.
+5. Return a concise structured plan.
 
-class TaskPlan(BaseModel):
-    summary: str
-    tasks: list[PlannedTask]
-```
+The tool-generated draft list is authoritative for execution. Final model text
+cannot introduce additional executable tasks.
 
-Important behavior:
+## 11. Event Coordinator Agent
 
-- The agent does not create tasks directly.
-- Express signs the plan with `JWT_SECRET`.
-- The approval token expires after 30 minutes.
-- Express re-checks workspace membership and assignee membership before insert.
+The coordinator investigates task state, historical decisions, blockers,
+workload, missing work, and event risk. It returns:
 
-Example frontend apply request:
+- readiness classification
+- direct answer
+- blocked items
+- overloaded members
+- risks
+- follow-up descriptions
+- optional approval-gated proposed tasks
 
-```js
-await axios.post(
-  `${API_URL}/ai/workspaces/${workspaceId}/task-plan/apply`,
-  { approvalToken },
-  { headers: { Authorization: `Bearer ${user.token}` } }
-);
-```
+Coordinator tasks use the same approval and execution path as task planning.
 
-Example planned task:
+## 12. Chat Summarizer
 
-```json
-{
-  "heading": "Prepare registration desk QR scanner",
-  "description": "Set up scanner laptop, test QR flow, and keep charger ready.",
-  "assigneeEmail": "member@example.com",
-  "priority": "high"
-}
-```
-
-## 5. Chat Summarizer
-
-The chat summarizer is simpler than a full agent and makes group chats more
-useful immediately. It appears as a `Summarize Chat` button in group chat
-headers.
-
-Useful outputs:
+The group-chat summarizer is not RAG and is not a tool-using agent. It sends the
+latest 200 messages to a structured prompt and extracts:
 
 - short summary
 - action items
 - unresolved questions
-- people mentioned
+- people
 - deadlines
 
-### Summarizer Flow
+For very long chats, a future production extension should summarize batches and
+then summarize those summaries.
+
+## 13. AWS Architecture
 
 ```mermaid
-sequenceDiagram
-  participant FE as SingleChat
-  participant API as Express
-  participant DB as MongoDB
-  participant AI as Flask AI Service
-
-  FE->>API: POST /api/ai/chats/:chatId/summary
-  API->>DB: Verify logged-in user is in chat
-  API->>DB: Load latest 200 messages
-  API->>AI: POST /v1/chats/summary
-  AI-->>API: Structured ChatSummary
-  API-->>FE: Summary modal data
+flowchart LR
+  U["Browser"] --> CF["CloudFront"]
+  CF --> ALB["Application Load Balancer"]
+  ALB --> G["ECS API Gateway"]
+  G --> O["ECS AI Orchestrator"]
+  G --> S["Chat and Task Services"]
+  S --> DB["MongoDB Atlas"]
+  S --> R["ElastiCache Redis Streams"]
+  R --> W["ECS Knowledge Indexer"]
+  W --> AI["ECS AI Engine"]
+  O --> AI
+  AI --> OS["Private OpenSearch Serverless"]
+  AI --> LLM["OpenAI"]
+  AI --> CW["CloudWatch"]
 ```
 
-Frontend button:
+AWS responsibilities:
 
-```jsx
-{selectedChat.isGroupChat && (
-  <ChatSummaryButton chatId={selectedChat._id} />
-)}
-```
+- CloudFront delivers the frontend and API routes.
+- The ALB exposes the gateway.
+- Cloud Map resolves internal services.
+- ECS Fargate runs stateless services.
+- ElastiCache carries message and knowledge streams.
+- OpenSearch stores durable searchable knowledge.
+- Secrets Manager supplies keys and internal tokens.
+- ECR stores service images.
+- CloudWatch stores logs and container metrics.
 
-Backend validation:
+## 14. Benefits And Tradeoffs
 
-```js
-if (!chat.users.some((chatUser) => chatUser._id.toString() === req.user._id.toString())) {
-  res.status(403);
-  throw new Error("You do not have access to this chat");
-}
-if (!chat.isGroupChat) {
-  res.status(400);
-  throw new Error("Chat summarizer is available for group chats");
-}
-```
+### OpenSearch Serverless
 
-Structured output schema:
+Pros:
 
-```py
-class ChatSummary(BaseModel):
-    short_summary: str
-    action_items: list[str]
-    unresolved_questions: list[str]
-    people_mentioned: list[str]
-    deadlines: list[str]
-```
+- durable managed storage
+- hybrid lexical/vector search
+- strict metadata filters
+- private VPC access
+- supports multiple AI-engine tasks
 
-Example response:
+Cons:
 
-```json
-{
-  "summary": {
-    "short_summary": "The team discussed registration desk setup and scanner testing.",
-    "action_items": [
-      "Test QR scanner before event day",
-      "Arrange backup laptop"
-    ],
-    "unresolved_questions": [
-      "Who will handle the second shift?"
-    ],
-    "people_mentioned": ["Aman", "Priya"],
-    "deadlines": ["before 9 AM"]
-  }
-}
-```
+- higher minimum cost than local Chroma
+- more IAM and network configuration
+- mapping and embedding dimensions must be versioned
 
-## 6. Event Coordinator Agent
+### Incremental Indexing
 
-The Event Coordinator Agent answers operational questions for event organizers:
+Pros:
 
-```text
-Are we ready for the event?
-What is blocked?
-Who has too many tasks?
-Which tasks need follow-up?
-```
+- lower query latency
+- lower embedding cost
+- retries and dead-letter handling
+- independent worker scaling
 
-It uses:
+Cons:
 
-- task status
-- chat activity
-- workspace members
-- RAG-retrieved workspace context
+- eventual consistency
+- event replay and ordering need monitoring
+- old data requires backfill
 
-### Coordinator Flow
+### Tool-Using Agents
 
-```mermaid
-sequenceDiagram
-  participant FE as WorkspaceAssistant
-  participant API as Express
-  participant DB as MongoDB
-  participant AI as Flask LangChain Agent
-  participant VDB as Chroma
+Pros:
 
-  FE->>API: POST /api/ai/workspaces/:id/event-coordinator
-  API->>DB: Verify workspace membership
-  API->>DB: Refresh workspace RAG documents
-  API->>AI: Send coordinator question + members
-  AI->>VDB: Retrieve relevant context
-  AI-->>API: EventCoordinatorReport
-  API-->>FE: Readiness, blockers, overloads, follow-ups, risks
-```
+- iterative evidence gathering
+- deterministic business tools
+- enforceable tool-level rules
+- auditable approval boundary
 
-Frontend call:
+Cons:
 
-```js
-await axios.post(
-  `${API_URL}/ai/workspaces/${workspaceId}/event-coordinator`,
-  { question: "What is blocked?" },
-  { headers: { Authorization: `Bearer ${user.token}` } }
-);
-```
+- more model calls and latency
+- higher cost than one-shot prompts
+- requires tool-loop timeouts and tests
+- incorrect tool choice remains possible
 
-Structured output schema:
+## 15. MLOps And LLMOps
 
-```py
-class EventCoordinatorReport(BaseModel):
-    answer: str
-    readiness: Literal["ready", "mostly_ready", "at_risk", "blocked", "unknown"]
-    blocked_items: list[str]
-    overloaded_members: list[str]
-    follow_up_tasks: list[str]
-    risks: list[str]
-```
+Production telemetry should include:
 
-Example response:
+- request ID and feature name
+- prompt and model versions
+- embedding model and dimensions
+- index schema version
+- tools called and tool-call count
+- retrieved source IDs and ranks
+- retrieval, tool, and model latency
+- token use and estimated cost
+- approval or rejection outcome
+- index lag and DLQ size
 
-```json
-{
-  "report": {
-    "answer": "The event is mostly ready, but venue confirmation and volunteer shifts need follow-up.",
-    "readiness": "mostly_ready",
-    "blocked_items": ["Venue booking approval"],
-    "overloaded_members": ["Priya has 5 open logistics tasks"],
-    "follow_up_tasks": ["Confirm second-shift volunteers"],
-    "risks": ["Registration desk may be understaffed after lunch"]
-  }
-}
-```
+Do not log raw private messages without an approved retention policy.
 
-## 7. Current UI Locations
+Maintain a versioned evaluation set with workspace fixtures, questions, expected
+source IDs, answer facts, and forbidden cross-workspace sources.
 
-Workspace assistant:
+Measure:
 
-- Location: chat sidebar
-- Button: `AI Assistant`
-- Tabs:
-  - `Ask Workspace`
-  - `Plan Tasks`
-  - `Event Coordinator`
+- Recall@K and Precision@K
+- Mean Reciprocal Rank
+- citation correctness
+- answer faithfulness
+- duplicate-task rate
+- assignment validity
+- cross-workspace leakage
+- P50/P95 latency
+- cost per successful request
 
-Chat summarizer:
+Model, prompt, embedding, and retriever changes should pass evaluations before
+staging, canary, and production promotion. Changing embedding dimensions
+requires a new index or complete re-embedding migration.
 
-- Location: group chat header
-- Button: `Summarize Chat`
-- Opens a modal with summary sections
+## 16. Failure Behavior
 
-## 8. Required Environment Variables
+- Model unavailable: AI requests fail; normal MongoDB features continue.
+- Vector store unavailable: workspace search falls back to MongoDB.
+- Indexer failure: event enters the DLQ; source data remains in MongoDB.
+- Invalid assignee: `draft_task` rejects the action.
+- Changed or expired approval token: backend rejects execution.
+- AI task restart: OpenSearch data remains available.
 
-```env
-OPENAI_API_KEY=your-openai-key
-OPENAI_MODEL=gpt-4.1-mini
-AI_SERVICE_TOKEN=replace-with-an-internal-service-token
-JWT_SECRET=replace-with-a-long-random-secret
-```
+## 17. Remaining Operational Work
 
-Without `OPENAI_API_KEY`, containers and smoke tests still run, but embeddings
-and model calls cannot complete.
+The code is production-oriented, but operating it responsibly still requires:
 
-## 9. Verification Commands
+- automated DLQ replay
+- CloudWatch alarms for index lag and AI errors
+- distributed tracing
+- explicit prompt/model/index version fields
+- staging OpenSearch integration tests
+- a representative RAG evaluation dataset
+- delete events when records become deletable
+- AI-specific rate limits and token budgets
+- scheduled reconciliation/backfill
+- idempotency records for approved executions
 
-```powershell
-docker compose config --quiet
-docker compose build ai-service backend frontend
-docker compose run --rm --no-deps frontend npm run build
-docker compose run --rm --no-deps -e AI_SERVICE_TOKEN=test-token ai-service python tests/smoke_check.py
-docker compose up -d mongodb redis zookeeper kafka ai-service backend frontend
-```
+## 18. Architecture Review Questions
 
-Health checks:
+- What freshness delay is acceptable after a new message?
+- How are out-of-order indexing events handled?
+- How are deleted records removed?
+- What is the cost budget per AI request?
+- Which queries should use MongoDB instead of semantic retrieval?
+- How is cross-workspace isolation tested?
+- Which tools require approval?
+- What is the embedding migration rollback plan?
+- Which metrics prove a retriever is better?
 
-```powershell
-Invoke-RestMethod http://127.0.0.1:5001/health
-Invoke-RestMethod http://127.0.0.1:5000/health
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000
-```
+## 19. Code Map
+
+Python:
+
+- `ai-service/app/rag.py`: embeddings, Chroma/OpenSearch, hybrid search, RRF.
+- `ai-service/app/agent_tools.py`: tools and draft validation.
+- `ai-service/app/chains.py`: assistant, agents, and summarizer.
+- `ai-service/app/routes.py`: private AI APIs.
+- `ai-service/app/schemas.py`: structured outputs.
+
+Node:
+
+- `backend/controllers/aiControllers.js`: authorization, bootstrap, approvals,
+  and execution.
+- `backend/services/workspaceKnowledgeService.js`: document construction.
+- `backend/services/knowledgeIndexService.js`: incremental index stream.
+- `backend/microservices/knowledgeIndexerServer.js`: indexing worker.
+- `backend/models/workspaceKnowledgeStateModel.js`: persistent backfill state.
+
+Infrastructure:
+
+- `docker-compose.yml`: local Chroma stack.
+- `infra/aws/main.tf`: production OpenSearch and ECS stack.
+- `.github/workflows/deploy-aws.yml`: deployment workflow.
+
+## 20. Mental Model
+
+Use MongoDB for exact business facts. Use retrieval for relevant unstructured
+history. Use the LLM to synthesize evidence. Use agents when the model must
+choose and call several tools. Keep business writes behind deterministic
+validation and human approval.

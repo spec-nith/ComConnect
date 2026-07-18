@@ -13,11 +13,13 @@ const {
   getPresenceService,
   presenceTtlSeconds,
 } = require("../services/presenceService");
+const Chat = require("../models/chatModel");
 const User = require("../models/userModel");
 const Workspace = require("../models/workspaceModel");
 
 const locationRoom = (workspaceId) => `workspace-location:${workspaceId}`;
 const publicLocation = ({ socketId, ...location }) => location;
+const LOCATION_TTL_MS = 120000;
 
 const createSocketServer = async (app) => {
   const server = http.createServer(app);
@@ -40,6 +42,35 @@ const createSocketServer = async (app) => {
   const serverId = process.env.SOCKET_SERVER_ID || os.hostname();
   const refreshIntervalMs = Math.max(10000, Math.floor(presenceTtlSeconds * 500));
   const workspaceLocations = new Map();
+  const pruneWorkspaceLocations = (workspaceId) => {
+    const locations = workspaceLocations.get(workspaceId);
+    if (!locations) return [];
+    const now = Date.now();
+    for (const [userId, location] of locations.entries()) {
+      if (
+        !location.timestamp ||
+        now - location.timestamp > LOCATION_TTL_MS ||
+        (location.socketId && !io.sockets.sockets.has(location.socketId))
+      ) {
+        locations.delete(userId);
+        io.to(locationRoom(workspaceId)).emit("user-location-removed", {
+          userId,
+          workspaceId,
+        });
+      }
+    }
+    if (!locations.size) {
+      workspaceLocations.delete(workspaceId);
+      return [];
+    }
+    return [...locations.values()];
+  };
+  const pruneLocationInterval = setInterval(() => {
+    for (const workspaceId of workspaceLocations.keys()) {
+      pruneWorkspaceLocations(workspaceId);
+    }
+  }, 30000);
+  pruneLocationInterval.unref?.();
 
   io.use((socket, next) => {
     const authorization = socket.handshake.headers.authorization;
@@ -106,6 +137,20 @@ const createSocketServer = async (app) => {
         }
       }
     });
+    socket.on("messages read", async ({ chatId, messageIds } = {}) => {
+      if (!chatId || !Array.isArray(messageIds) || messageIds.length === 0) return;
+      try {
+        const chat = await Chat.exists({ _id: chatId, users: socket.userId });
+        if (!chat) return;
+        socket.to(chatId.toString()).emit("messages read", {
+          chatId: chatId.toString(),
+          messageIds: messageIds.map((messageId) => messageId.toString()),
+          readBy: socket.userId,
+        });
+      } catch (error) {
+        console.error("Message read receipt failed:", error.message);
+      }
+    });
     socket.on("join-location-workspace", async ({ workspaceId } = {}) => {
       if (!workspaceId) return;
       try {
@@ -125,14 +170,12 @@ const createSocketServer = async (app) => {
           userPic: user.pic,
         };
         socket.join(locationRoom(workspaceId));
-        const locations = workspaceLocations.get(workspaceId);
+        socket.emit("location-workspace-joined", { workspaceId });
         socket.emit(
           "other-users-location",
-          locations
-            ? [...locations.values()].map((location) =>
-                publicLocation(location)
-              )
-            : []
+          pruneWorkspaceLocations(workspaceId).map((location) =>
+            publicLocation(location)
+          )
         );
       } catch (error) {
         console.error("Location workspace join failed:", error.message);
@@ -168,6 +211,15 @@ const createSocketServer = async (app) => {
         socketId: socket.id,
       };
       const locations = workspaceLocations.get(workspaceId) || new Map();
+      for (const [userId, existing] of locations.entries()) {
+        if (
+          !existing.timestamp ||
+          Date.now() - existing.timestamp > LOCATION_TTL_MS ||
+          (existing.socketId && !io.sockets.sockets.has(existing.socketId))
+        ) {
+          locations.delete(userId);
+        }
+      }
       locations.set(socket.userId, location);
       workspaceLocations.set(workspaceId, locations);
       socket
@@ -199,6 +251,7 @@ const createSocketServer = async (app) => {
   });
 
   server.comconnectCloseDependencies = async () => {
+    clearInterval(pruneLocationInterval);
     await io.close();
     await Promise.all([closeRedis(pubClient), closeRedis(subClient), presence.close()]);
   };

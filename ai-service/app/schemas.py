@@ -70,3 +70,8 @@ class EventCoordinatorReport(BaseModel):
     overloaded_members: list[str] = Field(default_factory=list, max_length=20)
     follow_up_tasks: list[str] = Field(default_factory=list, max_length=20)
     risks: list[str] = Field(default_factory=list, max_length=20)
+    proposed_tasks: list[PlannedTask] = Field(
+        default_factory=list,
+        max_length=20,
+        description="Approval-gated tasks drafted by the coordinator agent",
+    )

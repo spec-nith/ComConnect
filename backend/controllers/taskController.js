@@ -3,7 +3,22 @@ const asyncHandler = require("express-async-handler");
 const Task = require("../models/taskModel");
 const User = require("../models/userModel");
 const { getWorkspaceForMember } = require("../services/workspaceAccessService");
+const { queueKnowledgeUpsert } = require("../services/knowledgeIndexService");
 const { extractTags, normalizeTags } = require("../services/tagService");
+const { buildTaskDocument } = require("../services/workspaceKnowledgeService");
+const { recordAnalyticsEvent } = require("../services/opensearchAnalyticsService");
+
+const indexTask = async (taskId) => {
+  const task = await Task.findById(taskId)
+    .populate("assignee createdBy", "name email")
+    .populate("comments.user", "name email")
+    .lean();
+  if (task) {
+    queueKnowledgeUpsert(task.workspace, [buildTaskDocument(task)]).catch((error) => {
+      console.error("Unable to queue task indexing:", error.message);
+    });
+  }
+};
 
 const allocateTask = asyncHandler(async (req, res) => {
   const { heading, description, email, workspaceId, attachments, tags } = req.body;
@@ -36,6 +51,17 @@ const allocateTask = asyncHandler(async (req, res) => {
     createdBy: req.user._id,
   });
   await task.populate("assignee createdBy", "name email pic");
+  await indexTask(task._id);
+  recordAnalyticsEvent("task.created", {
+    request_id: req.requestId,
+    actor_user_id: req.user._id.toString(),
+    workspace_id: workspace._id.toString(),
+    task_id: task._id.toString(),
+    assignee_user_id: assignee._id.toString(),
+    status: task.status,
+    priority: task.priority,
+    tags: task.tags || [],
+  });
   res.status(201).json(task);
 });
 
@@ -97,6 +123,14 @@ const updateTaskStatus = asyncHandler(async (req, res) => {
 
   task.status = req.body.status;
   await task.save();
+  await indexTask(task._id);
+  recordAnalyticsEvent("task.status_changed", {
+    request_id: req.requestId,
+    actor_user_id: req.user._id.toString(),
+    workspace_id: task.workspace?.toString(),
+    task_id: task._id.toString(),
+    status: task.status,
+  });
   res.json(task);
 });
 
@@ -121,6 +155,14 @@ const addComment = asyncHandler(async (req, res) => {
 
   task.comments.push({ user: req.user._id, comment: req.body.comment.trim() });
   await task.save();
+  await indexTask(task._id);
+  recordAnalyticsEvent("task.commented", {
+    request_id: req.requestId,
+    actor_user_id: req.user._id.toString(),
+    workspace_id: task.workspace?.toString(),
+    task_id: task._id.toString(),
+    comment_length: req.body.comment.trim().length,
+  });
   res.json(task);
 });
 

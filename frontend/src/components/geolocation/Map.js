@@ -79,10 +79,13 @@ const MapComponent = ({ location, otherUsers }) => {
         }).addTo(map);
       }
 
-      if (!hasPositionedRef.current) {
-        map.setView(coordinates, 16);
-        hasPositionedRef.current = true;
-      }
+      map.setView(coordinates, Math.max(map.getZoom(), 16), { animate: true });
+      hasPositionedRef.current = true;
+    } else {
+      markerRef.current?.remove();
+      accuracyCircleRef.current?.remove();
+      markerRef.current = null;
+      accuracyCircleRef.current = null;
     }
 
     const activeUserIds = new Set();
@@ -115,8 +118,20 @@ const MapComponent = ({ location, otherUsers }) => {
     });
 
     const visibleUserKey = [
-      hasCoordinates(location) ? "self" : "",
-      ...Array.from(activeUserIds).sort(),
+      hasCoordinates(location)
+        ? `self:${Number(location.latitude).toFixed(6)},${Number(
+            location.longitude
+          ).toFixed(6)}`
+        : "",
+      ...otherUsers
+        .filter(hasCoordinates)
+        .map(
+          (member) =>
+            `${member.userId}:${Number(member.latitude).toFixed(6)},${Number(
+              member.longitude
+            ).toFixed(6)}`
+        )
+        .sort(),
     ].join(":");
     const visiblePoints = [
       ...(hasCoordinates(location)

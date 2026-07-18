@@ -3,6 +3,7 @@ const { closeRedis, connectRedis, createRedisClient } = require("./redisClient")
 const presenceTtlSeconds = Number(process.env.PRESENCE_TTL_SECONDS || 75);
 const socketKey = (socketId) => `presence:socket:${socketId}`;
 const userSocketsKey = (userId) => `presence:user:${userId}:sockets`;
+const onlineUsersKey = "presence:online-users";
 const lastSeenKey = (userId) => `presence:user:${userId}:last-seen`;
 const presenceChannel = "presence:events";
 
@@ -22,6 +23,7 @@ class PresenceService {
     const pipeline = this.redis.multi();
     pipeline.set(socketKey(socketId), payload, "EX", presenceTtlSeconds);
     pipeline.sadd(userSocketsKey(userId), socketId);
+    pipeline.sadd(onlineUsersKey, userId);
     pipeline.del(lastSeenKey(userId));
     pipeline.publish(
       presenceChannel,
@@ -48,6 +50,7 @@ class PresenceService {
     if (!presence.online) {
       await this.redis
         .multi()
+        .srem(onlineUsersKey, userId)
         .set(lastSeenKey(userId), now)
         .publish(
           presenceChannel,
@@ -78,6 +81,9 @@ class PresenceService {
       await this.redis.srem(userSocketsKey(userId), ...staleSocketIds);
     }
     const connections = exists.length - staleSocketIds.length;
+    if (connections === 0) {
+      await this.redis.srem(onlineUsersKey, userId);
+    }
     return {
       userId,
       online: connections > 0,

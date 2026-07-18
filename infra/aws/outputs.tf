@@ -24,3 +24,7 @@ output "ecr_repositories" {
 output "ecs_cluster" {
   value = aws_ecs_cluster.main.name
 }
+
+output "knowledge_opensearch_endpoint" {
+  value = aws_opensearchserverless_collection.knowledge.collection_endpoint
+}

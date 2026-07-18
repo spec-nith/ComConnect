@@ -67,7 +67,6 @@ const searchWorkspaceHistory = asyncHandler(async (req, res) => {
       excerpt: message.content,
       tags: message.tags || [],
       createdAt: message.createdAt,
-      score: 1,
     })),
     ...tasks.map((task) => ({
       type: "task",
@@ -77,7 +76,6 @@ const searchWorkspaceHistory = asyncHandler(async (req, res) => {
       excerpt: task.description,
       tags: task.tags || [],
       createdAt: task.updatedAt,
-      score: 1,
     })),
   ].sort((a, b) => timestamp(b) - timestamp(a));
 
@@ -97,19 +95,27 @@ const searchWorkspaceHistory = asyncHandler(async (req, res) => {
   }
 
   const merged = new Map();
-  for (const item of [...directResults, ...ragResults]) {
-    const key = `${item.type}:${item.sourceId}`;
-    const existing = merged.get(key);
-    if (!existing || Number(item.score || 0) > Number(existing.score || 0)) {
-      merged.set(key, { ...existing, ...item });
-    }
+  const rrfK = Number(process.env.WORKSPACE_SEARCH_RRF_K || 60);
+  for (const resultList of [directResults, ragResults]) {
+    resultList.forEach((item, index) => {
+      const key = `${item.type}:${item.sourceId}`;
+      const existing = merged.get(key) || { item, rrfScore: 0 };
+      existing.item = { ...existing.item, ...item };
+      existing.rrfScore += 1 / (rrfK + index + 1);
+      merged.set(key, existing);
+    });
   }
+  const maxScore = Math.max(
+    ...[...merged.values()].map(({ rrfScore }) => rrfScore),
+    Number.EPSILON
+  );
 
   res.json({
     strategy,
     messageCount,
     ragThreshold,
     results: [...merged.values()]
+      .map(({ item, rrfScore }) => ({ ...item, score: rrfScore / maxScore }))
       .sort((a, b) => Number(b.score || 0) - Number(a.score || 0) || timestamp(b) - timestamp(a))
       .slice(0, limit),
   });

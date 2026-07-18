@@ -5,6 +5,8 @@ node_modules
 docker-publish.sh
 # Testing
 /coverage
+__pycache__/
+*.py[cod]
 
 docker-test.sh 
 
@@ -28,6 +30,11 @@ yarn-error.log*
 
 # Vercel
 .vercel
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
 
 # Firebase
 *firebase-adminsdk*.json

@@ -15,11 +15,33 @@ x-backend-environment: &backend-environment
   MESSAGE_STREAM_KEY: chat:messages
   MESSAGE_STREAM_CONSUMER_GROUP: message-persistence
   MESSAGE_PERSIST_TIMEOUT_MS: 10000
+  KNOWLEDGE_STREAM_KEY: workspace:knowledge
+  KNOWLEDGE_DLQ_STREAM_KEY: workspace:knowledge:dead-letter
+  KNOWLEDGE_STREAM_CONSUMER_GROUP: knowledge-indexing
+  KNOWLEDGE_BACKFILL_BATCH_SIZE: 200
+  KNOWLEDGE_BACKFILL_LEASE_MS: 600000
+  WORKSPACE_SEARCH_RRF_K: 60
+  DEEPGRAM_STT_API_KEY: ${DEEPGRAM_STT_API_KEY:-}
+  DEEPGRAM_TTS_API_KEY: ${DEEPGRAM_TTS_API_KEY:-}
+  LIVEKIT_URL: ${LIVEKIT_URL:-}
+  LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
+  LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
+  TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+  TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+  TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
+  HUMAN_AGENT_NUMBER: ${HUMAN_AGENT_NUMBER:-}
+  JSON_BODY_LIMIT: ${JSON_BODY_LIMIT:-8mb}
   KAFKA_BROKER: kafka:9092
   KAFKA_CLIENT_ID: notification-service
   KAFKA_GROUP_ID: notification-workers
   FIREBASE_SERVICE_ACCOUNT_PATH: ${FIREBASE_SERVICE_ACCOUNT_PATH:-}
   FIREBASE_SERVICE_ACCOUNT_JSON: ${FIREBASE_SERVICE_ACCOUNT_JSON:-}
+  OPENSEARCH_ANALYTICS_ENABLED: ${OPENSEARCH_ANALYTICS_ENABLED:-true}
+  OPENSEARCH_ANALYTICS_NODE: ${OPENSEARCH_ANALYTICS_NODE:-https://opensearch:9200}
+  OPENSEARCH_ANALYTICS_USERNAME: ${OPENSEARCH_ANALYTICS_USERNAME:-admin}
+  OPENSEARCH_ANALYTICS_PASSWORD: ${OPENSEARCH_ANALYTICS_PASSWORD:-C0mConnect!9vR7qP2zLx#2026}
+  OPENSEARCH_ANALYTICS_INDEX: ${OPENSEARCH_ANALYTICS_INDEX:-comconnect-analytics-events}
+  OPENSEARCH_ANALYTICS_SSL_REJECT_UNAUTHORIZED: ${OPENSEARCH_ANALYTICS_SSL_REJECT_UNAUTHORIZED:-false}
 
 x-backend-service: &backend-service
   restart: unless-stopped
@@ -97,6 +119,57 @@ services:
     networks:
       - app_network
 
+  opensearch:
+    image: opensearchproject/opensearch:${OPENSEARCH_VERSION:-2.19.1}
+    restart: unless-stopped
+    environment:
+      cluster.name: comconnect-analytics
+      node.name: comconnect-opensearch
+      discovery.type: single-node
+      bootstrap.memory_lock: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-C0mConnect!9vR7qP2zLx#2026}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -ksu admin:$${OPENSEARCH_INITIAL_ADMIN_PASSWORD} https://localhost:9200 >/dev/null",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+    networks:
+      - app_network
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:${OPENSEARCH_VERSION:-2.19.1}
+    restart: unless-stopped
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    environment:
+      OPENSEARCH_HOSTS: '["https://opensearch:9200"]'
+      OPENSEARCH_USERNAME: kibanaserver
+      OPENSEARCH_PASSWORD: kibanaserver
+      OPENSEARCH_SSL_VERIFICATIONMODE: none
+      SERVER_HOST: "0.0.0.0"
+    ports:
+      - "5601:5601"
+    networks:
+      - app_network
+
   identity-service:
     <<: *backend-service
     image: comconnect-identity-service
@@ -106,6 +179,11 @@ services:
     environment:
       <<: *backend-environment
       PORT: 5101
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   chat-service:
     <<: *backend-service
@@ -141,6 +219,23 @@ services:
       redis:
         condition: service_healthy
 
+  knowledge-indexer:
+    <<: *backend-service
+    image: comconnect-knowledge-indexer
+    build:
+      context: .
+      dockerfile: backend/dockerfiles/knowledge-indexer.Dockerfile
+    environment:
+      <<: *backend-environment
+      PORT: 5107
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+
   task-service:
     <<: *backend-service
     image: comconnect-task-service
@@ -150,6 +245,11 @@ services:
     environment:
       <<: *backend-environment
       PORT: 5103
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   notification-service:
     <<: *backend-service
@@ -182,6 +282,8 @@ services:
         condition: service_healthy
       ai-service:
         condition: service_healthy
+      redis:
+        condition: service_healthy
 
   ai-service:
     build:
@@ -191,8 +293,26 @@ services:
     environment:
       AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-local-ai-service-token}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openai/gpt-4.1-mini}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-2048}
+      OPENAI_EMBEDDING_API_KEY: ${OPENAI_EMBEDDING_API_KEY:-}
+      OPENAI_EMBEDDING_BASE_URL: ${OPENAI_EMBEDDING_BASE_URL:-}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-1536}
+      VECTOR_STORE_BACKEND: chroma
+      AI_WORKERS: 1
       CHROMA_DIR: /data/chroma
+      RETRIEVAL_CANDIDATE_LIMIT: ${RETRIEVAL_CANDIDATE_LIMIT:-40}
+      RRF_K: ${RRF_K:-60}
+      AI_MODEL_TIMEOUT_SECONDS: ${AI_MODEL_TIMEOUT_SECONDS:-60}
+      AI_AGENT_RECURSION_LIMIT: ${AI_AGENT_RECURSION_LIMIT:-12}
     volumes:
       - chroma_data:/data/chroma
     healthcheck:
@@ -245,6 +365,7 @@ services:
     environment:
       REACT_APP_API_URL: http://localhost:5000
       REACT_APP_SOCKET_URL: http://localhost:5000
+      REACT_APP_OPENSEARCH_DASHBOARDS_URL: http://localhost:5601
       CHOKIDAR_USEPOLLING: "true"
       WATCHPACK_POLLING: "true"
     depends_on:
@@ -261,3 +382,4 @@ volumes:
   mongodb_data:
   redis_data:
   chroma_data:
+  opensearch_data:

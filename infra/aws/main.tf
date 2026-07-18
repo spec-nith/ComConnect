@@ -3,7 +3,8 @@ data "aws_availability_zones" "available" {
 }
 
 locals {
-  name = "comconnect-${var.environment}"
+  name                      = "comconnect-${var.environment}"
+  knowledge_collection_name = substr("comconnect-${var.environment}-knowledge", 0, 32)
 
   services = {
     gateway = {
@@ -21,6 +22,10 @@ locals {
     message-worker = {
       port       = 5106
       repository = "message-worker"
+    }
+    knowledge-indexer = {
+      port       = 5107
+      repository = "knowledge-indexer"
     }
     tasks = {
       port       = 5103
@@ -40,7 +45,7 @@ locals {
     }
   }
 
-  backend_services = toset(["identity", "chat", "message-worker", "tasks", "notifications", "ai-orchestrator"])
+  backend_services = toset(["identity", "chat", "message-worker", "knowledge-indexer", "tasks", "notifications", "ai-orchestrator"])
   secret_keys      = ["MONGO_URI", "JWT_SECRET", "INTERNAL_SERVICE_TOKEN", "AI_SERVICE_TOKEN"]
 }
 
@@ -126,6 +131,13 @@ resource "aws_security_group" "ecs" {
   ingress {
     from_port = 6379
     to_port   = 6379
+    protocol  = "tcp"
+    self      = true
+  }
+
+  ingress {
+    from_port = 443
+    to_port   = 443
     protocol  = "tcp"
     self      = true
   }
@@ -308,6 +320,103 @@ resource "aws_iam_role" "task" {
   })
 }
 
+resource "aws_iam_role" "ai_task" {
+  name = "${local.name}-ai-task"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_opensearchserverless_vpc_endpoint" "knowledge" {
+  name               = local.knowledge_collection_name
+  vpc_id             = aws_vpc.main.id
+  subnet_ids         = aws_subnet.public[*].id
+  security_group_ids = [aws_security_group.ecs.id]
+}
+
+resource "aws_opensearchserverless_security_policy" "knowledge_encryption" {
+  name = local.knowledge_collection_name
+  type = "encryption"
+  policy = jsonencode({
+    Rules = [{
+      ResourceType = "collection"
+      Resource     = ["collection/${local.knowledge_collection_name}"]
+    }]
+    AWSOwnedKey = true
+  })
+}
+
+resource "aws_opensearchserverless_security_policy" "knowledge_network" {
+  name = local.knowledge_collection_name
+  type = "network"
+  policy = jsonencode([{
+    Rules = [{
+      ResourceType = "collection"
+      Resource     = ["collection/${local.knowledge_collection_name}"]
+    }]
+    AllowFromPublic = false
+    SourceVPCEs     = [aws_opensearchserverless_vpc_endpoint.knowledge.id]
+  }])
+}
+
+resource "aws_opensearchserverless_collection" "knowledge" {
+  name = local.knowledge_collection_name
+  type = "VECTORSEARCH"
+
+  depends_on = [
+    aws_opensearchserverless_security_policy.knowledge_encryption,
+    aws_opensearchserverless_security_policy.knowledge_network,
+  ]
+}
+
+resource "aws_opensearchserverless_access_policy" "knowledge" {
+  name = local.knowledge_collection_name
+  type = "data"
+  policy = jsonencode([{
+    Rules = [
+      {
+        ResourceType = "collection"
+        Resource     = ["collection/${local.knowledge_collection_name}"]
+        Permission = [
+          "aoss:DescribeCollectionItems",
+          "aoss:CreateCollectionItems",
+          "aoss:UpdateCollectionItems",
+        ]
+      },
+      {
+        ResourceType = "index"
+        Resource     = ["index/${local.knowledge_collection_name}/*"]
+        Permission = [
+          "aoss:CreateIndex",
+          "aoss:UpdateIndex",
+          "aoss:DescribeIndex",
+          "aoss:ReadDocument",
+          "aoss:WriteDocument",
+        ]
+      }
+    ]
+    Principal = [aws_iam_role.ai_task.arn]
+  }])
+}
+
+resource "aws_iam_role_policy" "ai_opensearch" {
+  name = "access-knowledge-opensearch"
+  role = aws_iam_role.ai_task.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["aoss:APIAccessAll"]
+      Resource = aws_opensearchserverless_collection.knowledge.arn
+    }]
+  })
+}
+
 resource "aws_cloudwatch_log_group" "service" {
   for_each          = local.services
   name              = "/ecs/${local.name}/${each.key}"
@@ -344,7 +453,9 @@ resource "aws_ecs_task_definition" "service" {
   cpu                      = each.key == "ai-engine" ? 1024 : 512
   memory                   = each.key == "ai-engine" ? 2048 : 1024
   execution_role_arn       = aws_iam_role.execution.arn
-  task_role_arn            = aws_iam_role.task.arn
+  task_role_arn = each.key == "ai-engine" ? (
+    aws_iam_role.ai_task.arn
+  ) : aws_iam_role.task.arn
 
   container_definitions = jsonencode([{
     name      = each.key
@@ -366,6 +477,11 @@ resource "aws_ecs_task_definition" "service" {
         { name = "MESSAGE_STREAM_KEY", value = "chat:messages" },
         { name = "MESSAGE_STREAM_CONSUMER_GROUP", value = "message-persistence" },
         { name = "MESSAGE_PERSIST_TIMEOUT_MS", value = "10000" },
+        { name = "KNOWLEDGE_STREAM_KEY", value = "workspace:knowledge" },
+        { name = "KNOWLEDGE_DLQ_STREAM_KEY", value = "workspace:knowledge:dead-letter" },
+        { name = "KNOWLEDGE_STREAM_CONSUMER_GROUP", value = "knowledge-indexing" },
+        { name = "KNOWLEDGE_BACKFILL_BATCH_SIZE", value = "200" },
+        { name = "KNOWLEDGE_BACKFILL_LEASE_MS", value = "600000" },
         { name = "IDENTITY_SERVICE_URL", value = "http://identity.comconnect.local:5101" },
         { name = "CHAT_SERVICE_URL", value = "http://chat.comconnect.local:5102" },
         { name = "TASK_SERVICE_URL", value = "http://tasks.comconnect.local:5103" },
@@ -373,10 +489,22 @@ resource "aws_ecs_task_definition" "service" {
         { name = "AI_ORCHESTRATOR_URL", value = "http://ai-orchestrator.comconnect.local:5105" },
         { name = "AI_SERVICE_URL", value = "http://ai-engine.comconnect.local:5001" },
         { name = "MESSAGE_WORKER_SERVICE_URL", value = "http://message-worker.comconnect.local:5106" },
-        { name = "CHROMA_DIR", value = "/tmp/chroma" },
         { name = "KAFKA_SSL", value = "true" }
       ],
-      each.key == "ai-engine" ? [{ name = "OPENAI_MODEL", value = "gpt-4.1-mini" }] : []
+      each.key == "ai-engine" ? [
+        { name = "OPENAI_MODEL", value = "gpt-4.1-mini" },
+        { name = "OPENAI_EMBEDDING_MODEL", value = "text-embedding-3-small" },
+        { name = "EMBEDDING_DIMENSIONS", value = "1536" },
+        { name = "VECTOR_STORE_BACKEND", value = "opensearch" },
+        { name = "AI_WORKERS", value = "2" },
+        { name = "OPENSEARCH_ENDPOINT", value = aws_opensearchserverless_collection.knowledge.collection_endpoint },
+        { name = "OPENSEARCH_INDEX", value = "comconnect-knowledge" },
+        { name = "RETRIEVAL_CANDIDATE_LIMIT", value = "40" },
+        { name = "RRF_K", value = "60" },
+        { name = "AI_MODEL_TIMEOUT_SECONDS", value = "60" },
+        { name = "AI_AGENT_RECURSION_LIMIT", value = "12" },
+        { name = "AWS_REGION", value = var.aws_region }
+      ] : []
     )
     secrets = concat(
       contains(local.backend_services, each.key) ? [
@@ -415,7 +543,11 @@ resource "aws_ecs_task_definition" "service" {
     }
   }])
 
-  depends_on = [aws_secretsmanager_secret_version.runtime]
+  depends_on = [
+    aws_secretsmanager_secret_version.runtime,
+    aws_opensearchserverless_access_policy.knowledge,
+    aws_iam_role_policy.ai_opensearch,
+  ]
 }
 
 resource "aws_ecs_service" "service" {
@@ -428,7 +560,7 @@ resource "aws_ecs_service" "service" {
     each.key,
     var.desired_count
   )
-  launch_type     = "FARGATE"
+  launch_type = "FARGATE"
 
   deployment_minimum_healthy_percent = 50
   deployment_maximum_percent         = 200

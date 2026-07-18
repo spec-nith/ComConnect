@@ -14,6 +14,7 @@ import Signup from "./components/Authentication/Signup";
 import Geo from "./components/geolocation/App";
 import theme from "./theme";
 import PWAInstallPrompt from "./components/pwa/PWAInstallPrompt";
+import AnalyticsDashboard from "./Pages/AnalyticsDashboard";
 
 const App = () => {
   return (
@@ -28,6 +29,7 @@ const App = () => {
                   <Route path="/signup" element={<Signup />} />
                   <Route path="/geo-location" element={<Geo />} />
                   <Route path="/workspace/:workspaceId/map" element={<Geo />} />
+                  <Route path="/analytics" element={<AnalyticsDashboard />} />
                   <Route path="/tasks/:workspaceId" element={<TaskAllocatorPage />} /> {/* Updated route */}
                   <Route path="/my-tasks" element={<MyTasks />} />
                   <Route path="/chats" element={<Chatpage />} />

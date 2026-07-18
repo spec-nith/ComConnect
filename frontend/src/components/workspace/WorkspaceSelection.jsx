@@ -10,7 +10,7 @@ import {
   SimpleGrid,
   Text,
 } from "@chakra-ui/react";
-import { FiArrowRight, FiGrid, FiLogOut, FiPlus } from "react-icons/fi";
+import { FiArrowRight, FiBarChart2, FiGrid, FiLogOut, FiPlus } from "react-icons/fi";
 import { useNavigate } from "react-router-dom";
 import { useWorkspace } from "../../Context/WorkspaceProvider";
 import CreateWorkspaceModal from "./CreateWorkspaceModal";
@@ -43,15 +43,26 @@ const WorkspaceSelection = () => {
             <Text color="#8f9d97" fontSize="xs">Workspace directory</Text>
           </Box>
         </HStack>
-        <Button
-          leftIcon={<FiLogOut />}
-          size="sm"
-          variant="ghost"
-          color="#bdc8c3"
-          onClick={logout}
-        >
-          Sign out
-        </Button>
+        <HStack spacing={2}>
+          <Button
+            leftIcon={<FiBarChart2 />}
+            size="sm"
+            variant="ghost"
+            color="#bdc8c3"
+            onClick={() => navigate("/analytics")}
+          >
+            Analytics
+          </Button>
+          <Button
+            leftIcon={<FiLogOut />}
+            size="sm"
+            variant="ghost"
+            color="#bdc8c3"
+            onClick={logout}
+          >
+            Sign out
+          </Button>
+        </HStack>
       </Flex>
 
       <Box w="100%" maxW="1180px" mx="auto" px={{ base: 5, md: 8 }} py={10}>
@@ -88,60 +99,65 @@ const WorkspaceSelection = () => {
 
         {userWorkspaces?.length ? (
           <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={4}>
-            {userWorkspaces.map((workspace) => (
-              <Flex
-                key={workspace._id}
-                as="button"
-                type="button"
-                direction="column"
-                minH="190px"
-                p={5}
-                textAlign="left"
-                bg="#171c1b"
-                border="1px solid #313b37"
-                borderRadius="8px"
-                transition="border-color 150ms ease, background 150ms ease"
-                _hover={{ bg: "#1b211f", borderColor: "#52615b" }}
-                onClick={() => navigate(`/workspace/${workspace._id}/chats`)}
-              >
-                <Flex align="center" justify="space-between">
-                  <Flex
-                    w="42px"
-                    h="42px"
-                    align="center"
-                    justify="center"
-                    bg="#26332e"
-                    color="#6ee7b7"
-                    borderRadius="6px"
-                    fontWeight="800"
-                  >
-                    {workspace.workspaceName?.charAt(0).toUpperCase() || "W"}
+            {userWorkspaces.map((workspace) => {
+              const members = workspace.members || workspace.users || [];
+              const memberCount = workspace.memberCount ?? members.length;
+
+              return (
+                <Flex
+                  key={workspace._id}
+                  as="button"
+                  type="button"
+                  direction="column"
+                  minH="190px"
+                  p={5}
+                  textAlign="left"
+                  bg="#171c1b"
+                  border="1px solid #313b37"
+                  borderRadius="8px"
+                  transition="border-color 150ms ease, background 150ms ease"
+                  _hover={{ bg: "#1b211f", borderColor: "#52615b" }}
+                  onClick={() => navigate(`/workspace/${workspace._id}/chats`)}
+                >
+                  <Flex align="center" justify="space-between">
+                    <Flex
+                      w="42px"
+                      h="42px"
+                      align="center"
+                      justify="center"
+                      bg="#26332e"
+                      color="#6ee7b7"
+                      borderRadius="6px"
+                      fontWeight="800"
+                    >
+                      {workspace.workspaceName?.charAt(0).toUpperCase() || "W"}
+                    </Flex>
+                    <FiArrowRight color="#8f9d97" />
                   </Flex>
-                  <FiArrowRight color="#8f9d97" />
-                </Flex>
-                <Text fontWeight="700" fontSize="lg" mt={5} noOfLines={1}>
-                  {workspace.workspaceName}
-                </Text>
-                <Text color="#8f9d97" fontSize="sm" mt={1}>
-                  {workspace.members?.length || 0} members
-                </Text>
-                <Flex mt="auto" pt={5} align="center" justify="space-between">
-                  <AvatarGroup size="xs" max={4}>
-                    {(workspace.members || []).map((member, index) => (
-                      <Avatar
-                        key={member._id || index}
-                        name={member.name}
-                        src={member.pic}
-                        bg="#2c3532"
-                      />
-                    ))}
-                  </AvatarGroup>
-                  <Text color="#34d399" fontSize="xs" fontWeight="700">
-                    Open workspace
+                  <Text fontWeight="700" fontSize="lg" mt={5} noOfLines={1}>
+                    {workspace.workspaceName}
                   </Text>
+                  <Text color="#8f9d97" fontSize="sm" mt={1}>
+                    {memberCount} {memberCount === 1 ? "member" : "members"}
+                  </Text>
+                  <Flex mt="auto" pt={5} align="center" justify="space-between">
+                    <AvatarGroup size="xs" max={4}>
+                      {members.map((member, index) => (
+                        <Avatar
+                          key={member._id || index}
+                          name={member.name}
+                          src={member.pic}
+                          bg="#2c3532"
+                        />
+                      ))}
+                    </AvatarGroup>
+                    <Text color="#34d399" fontSize="xs" fontWeight="700">
+                      Open workspace
+                    </Text>
+                  </Flex>
                 </Flex>
-              </Flex>
-            ))}
+              );
+            })}
           </SimpleGrid>
         ) : (
           <Flex

@@ -1,5 +1,6 @@
 import { Avatar, Spinner, Tooltip } from "@chakra-ui/react";
 import ScrollableFeed from "react-scrollable-feed";
+import { FiCheck } from "react-icons/fi";
 import {
   isLastMessage,
   isSameSender,
@@ -11,6 +12,16 @@ import { ChatState } from "../Context/ChatProvider";
 const ScrollableChat = ({ messages, pendingMessages = [] }) => {
   const { user } = ChatState();
   const allMessages = [...messages, ...pendingMessages];
+  const idOf = (value) => (value?._id || value)?.toString();
+  const messageReadByRecipients = (message) => {
+    const recipientIds = (message.chat?.users || [])
+      .map(idOf)
+      .filter((memberId) => memberId && memberId !== user._id);
+    if (recipientIds.length === 0) return false;
+
+    const readByIds = new Set((message.readBy || []).map(idOf));
+    return recipientIds.every((recipientId) => readByIds.has(recipientId));
+  };
 
   return (
     <ScrollableFeed>
@@ -53,6 +64,19 @@ const ScrollableChat = ({ messages, pendingMessages = [] }) => {
                 {message.content}
                 {message.isPending && (
                   <Spinner size="xs" color="currentColor" thickness="2px" />
+                )}
+                {mine && !message.isPending && (
+                  <span
+                    className={`message-status ${
+                      messageReadByRecipients(message) ? "message-status--read" : ""
+                    }`}
+                    aria-label={
+                      messageReadByRecipients(message) ? "Read" : "Sent"
+                    }
+                  >
+                    <FiCheck />
+                    {messageReadByRecipients(message) && <FiCheck />}
+                  </span>
                 )}
               </span>
             </div>

@@ -1,8 +1,20 @@
 from flask import Blueprint, jsonify, request
 
 from .auth import require_service_token
-from .chains import answer_question, coordinate_event, create_task_plan, summarize_chat
-from .rag import replace_workspace_documents, search
+from .chains import (
+    answer_chat_context,
+    answer_question,
+    coordinate_event,
+    create_task_plan,
+    summarize_chat,
+)
+from .rag import (
+    delete_workspace_documents,
+    replace_workspace_documents,
+    reset_workspace_documents,
+    search,
+    upsert_workspace_documents,
+)
 
 api = Blueprint("api", __name__)
 
@@ -24,6 +36,35 @@ def index_workspace(workspace_id):
     payload = request.get_json(silent=True) or {}
     count = replace_workspace_documents(workspace_id, payload.get("documents", []))
     return jsonify({"indexed": count})
+
+
+@api.post("/workspaces/<workspace_id>/documents/reset")
+@require_service_token
+def reset_workspace_knowledge(workspace_id):
+    reset_workspace_documents(workspace_id)
+    return jsonify({"reset": True})
+
+
+@api.post("/workspaces/<workspace_id>/documents/upsert")
+@require_service_token
+def upsert_workspace_knowledge(workspace_id):
+    payload = request.get_json(silent=True) or {}
+    count = upsert_workspace_documents(
+        workspace_id,
+        payload.get("documents", []),
+    )
+    return jsonify({"upserted": count})
+
+
+@api.post("/workspaces/<workspace_id>/documents/delete")
+@require_service_token
+def delete_workspace_knowledge(workspace_id):
+    payload = request.get_json(silent=True) or {}
+    count = delete_workspace_documents(
+        workspace_id,
+        payload.get("ids", []),
+    )
+    return jsonify({"deleted": count})
 
 
 @api.post("/workspaces/<workspace_id>/ask")
@@ -52,8 +93,21 @@ def search_workspace(workspace_id):
 
     limit = min(max(int(payload.get("limit", 12)), 1), 30)
     results = []
-    for document, score in search(workspace_id, query, tags, limit):
+    source_type = payload.get("sourceType")
+    for document, score in search(
+        workspace_id,
+        query,
+        tags,
+        limit,
+        source_type=source_type,
+    ):
         metadata = document.metadata
+        raw_tags = metadata.get("tags", [])
+        tags = (
+            [tag for tag in raw_tags.split(",") if tag]
+            if isinstance(raw_tags, str)
+            else raw_tags
+        )
         results.append(
             {
                 "type": metadata.get("type"),
@@ -62,9 +116,7 @@ def search_workspace(workspace_id):
                 "label": metadata.get("label"),
                 "title": metadata.get("label"),
                 "excerpt": document.page_content[:500],
-                "tags": [
-                    tag for tag in metadata.get("tags", "").split(",") if tag
-                ],
+                "tags": tags,
                 "createdAt": metadata.get("created_at"),
                 "score": score,
             }
@@ -79,12 +131,18 @@ def plan_workspace_tasks(workspace_id):
     request_text = payload.get("request", "").strip()
     if not request_text:
         return jsonify({"message": "request is required"}), 400
-    plan, documents = create_task_plan(
+    plan, trace = create_task_plan(
         workspace_id,
         request_text,
         payload.get("members", []),
+        payload.get("tasks", []),
     )
-    return jsonify({"plan": plan.model_dump(by_alias=True), "sources": _sources(documents)})
+    return jsonify(
+        {
+            "plan": plan.model_dump(by_alias=True),
+            "agent": trace,
+        }
+    )
 
 
 @api.post("/workspaces/<workspace_id>/event-coordinator")
@@ -94,12 +152,13 @@ def coordinate_workspace_event(workspace_id):
     question = payload.get("question", "").strip()
     if not question:
         return jsonify({"message": "question is required"}), 400
-    report, documents = coordinate_event(
+    report, trace = coordinate_event(
         workspace_id,
         question,
         payload.get("members", []),
+        payload.get("tasks", []),
     )
-    return jsonify({"report": report.model_dump(), "sources": _sources(documents)})
+    return jsonify({"report": report.model_dump(), "agent": trace})
 
 
 @api.post("/chats/summary")
@@ -111,3 +170,21 @@ def summarize_group_chat():
         return jsonify({"message": "messages are required"}), 400
     summary = summarize_chat(payload.get("chatName", "Group chat"), messages)
     return jsonify({"summary": summary.model_dump()})
+
+
+@api.post("/chats/answer")
+@require_service_token
+def answer_recent_chats():
+    payload = request.get_json(silent=True) or {}
+    messages = payload.get("messages", [])
+    question = payload.get("question", "").strip()
+    if not question:
+        return jsonify({"message": "question is required"}), 400
+    if not messages:
+        return jsonify({"answer": "I could not find recent workspace chats to answer from."})
+    answer = answer_chat_context(
+        payload.get("chatName", "Workspace recent chats"),
+        question,
+        messages,
+    )
+    return jsonify({"answer": answer})

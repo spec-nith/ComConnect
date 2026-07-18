@@ -29,6 +29,7 @@ import { API_URL } from "../config/api.config";
 import UserListItem from "./userAvatar/UserListItem";
 import socket from "../Context/SocketContext";
 import ChatSummaryButton from "./ai/ChatSummaryButton";
+import VoiceAgentLauncher from "./ai/VoiceAgentLauncher";
 
 const SingleChat = ({ fetchAgain, setFetchAgain }) => {
   const [messages, setMessages] = useState([]);
@@ -67,6 +68,41 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
     setChats,
   } = ChatState();
 
+  const applyReadReceipt = useCallback(({ messageIds = [], readBy }) => {
+    if (!readBy || messageIds.length === 0) return;
+    const readMessageIds = new Set(messageIds.map(String));
+    setMessages((currentMessages) =>
+      currentMessages.map((message) => {
+        if (!readMessageIds.has(message._id?.toString())) return message;
+        const existingReadBy = (message.readBy || []).map((reader) =>
+          (reader._id || reader).toString()
+        );
+        if (existingReadBy.includes(readBy.toString())) return message;
+        return { ...message, readBy: [...(message.readBy || []), readBy] };
+      })
+    );
+  }, []);
+
+  const markChatRead = useCallback(
+    async (chatId = selectedChat?._id) => {
+      if (!chatId || !user?.token) return;
+      try {
+        const { data } = await axios.put(
+          `${API_URL}/message/${chatId}`,
+          {},
+          { headers: { Authorization: `Bearer ${user.token}` } }
+        );
+        applyReadReceipt(data);
+        if (data.messageIds?.length) {
+          socket.emit("messages read", data);
+        }
+      } catch (error) {
+        console.error("Failed to mark messages read:", error);
+      }
+    },
+    [applyReadReceipt, selectedChat?._id, user?.token]
+  );
+
   const fetchMessages = async () => {
     if (!selectedChat) return;
 
@@ -84,6 +120,7 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
         config
       );
       setMessages(data);
+      markChatRead(selectedChat._id);
       setLoading(false);
 
       console.log("Joining chat room:", selectedChat._id);
@@ -270,12 +307,12 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
 
   useEffect(() => {
     // Connect socket if not already connected
+    socket.auth = { token: user.token };
     if (!socket.connected) {
       console.log("Connecting socket...");
       socket.connect();
     }
 
-    socket.auth = { token: user.token };
     socket.emit("setup");
 
     const handleConnected = () => {
@@ -370,6 +407,7 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
           }
           return prevMessages;
         });
+        markChatRead(newMessageRecieved.chat._id);
       }
     };
 
@@ -382,7 +420,18 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
       socket.off("message recieved", handleMessageReceived);
       console.log('🔇 Socket listener removed for "message recieved"');
     };
-  }, [setFetchAgain, setNotification]);
+  }, [markChatRead, setFetchAgain, setNotification]);
+
+  useEffect(() => {
+    const handleMessagesRead = (receipt) => {
+      if (receipt.chatId === selectedChatCompareRef.current?._id) {
+        applyReadReceipt(receipt);
+      }
+    };
+
+    socket.on("messages read", handleMessagesRead);
+    return () => socket.off("messages read", handleMessagesRead);
+  }, [applyReadReceipt]);
 
   // Close search dropdown when clicking outside
   useEffect(() => {
@@ -512,6 +561,10 @@ const SingleChat = ({ fetchAgain, setFetchAgain }) => {
                 gap={{ base: 1, md: 3 }}
               >
                 <Box display="flex" alignItems="center" gap={{ base: 1, md: 2 }}>
+                  <VoiceAgentLauncher
+                    workspaceId={selectedChat?.workspace}
+                    onTasksCreated={() => setFetchAgain((prev) => !prev)}
+                  />
                   <Box display={{ base: "none", sm: "block" }}>
                     {selectedChat.isGroupChat && (
                       <ChatSummaryButton chatId={selectedChat._id} />

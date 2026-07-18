@@ -77,6 +77,8 @@ Terraform creates:
 - gateway and internal services
 - ECR repositories
 - Multi-AZ ElastiCache Redis replication group for presence, Socket.IO, and streams
+- private OpenSearch Serverless vector-search collection and VPC endpoint
+- knowledge-indexer ECS service for incremental embeddings
 - Secrets Manager runtime secret
 - CloudWatch logs
 - private S3 frontend bucket
@@ -86,6 +88,11 @@ Every deployable service has its own ECR repository and ECS task definition.
 `service_desired_counts` and `service_max_counts` configure services
 independently, and target-tracking CPU policies scale eligible services without
 scaling the rest of the application.
+
+The AWS AI engine uses OpenSearch Serverless instead of task-local Chroma.
+Vector data therefore survives Fargate replacement and can be shared by
+multiple AI-engine tasks. Existing workspaces should be backfilled through the
+workspace sync API before production traffic is enabled.
 
 ### Prerequisites
 

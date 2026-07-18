@@ -7,20 +7,22 @@ service_desired_counts = {
   identity        = 1
   chat            = 2
   message-worker  = 2
+  knowledge-indexer = 1
   tasks           = 1
   notifications   = 1
   ai-orchestrator = 1
-  ai-engine       = 1
+  ai-engine       = 2
 }
 service_max_counts = {
   gateway         = 6
   identity        = 3
   chat            = 8
   message-worker  = 8
+  knowledge-indexer = 4
   tasks           = 4
   notifications   = 4
   ai-orchestrator = 4
-  ai-engine       = 1
+  ai-engine       = 6
 }
 mongo_uri                     = "mongodb+srv://user:password@cluster.example/comconnect"
 kafka_broker                  = "broker.example:9092"

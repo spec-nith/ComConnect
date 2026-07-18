@@ -31,11 +31,16 @@ export const SocketProvider = ({ children }) => {
       if (document.visibilityState === "visible") connect();
     };
 
+    const setupPresence = () => socket.emit("setup");
+
+    socket.on("connect", setupPresence);
     window.addEventListener("online", connect);
     window.addEventListener("offline", disconnect);
     document.addEventListener("visibilitychange", handleVisibility);
+    connect();
 
     return () => {
+      socket.off("connect", setupPresence);
       window.removeEventListener("online", connect);
       window.removeEventListener("offline", disconnect);
       document.removeEventListener("visibilitychange", handleVisibility);
