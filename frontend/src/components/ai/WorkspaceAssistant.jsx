@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import axios from "axios";
 import {
   Badge,
   Box,
   Button,
+  HStack,
   Divider,
   List,
   ListItem,
@@ -25,36 +26,57 @@ import {
   useToast,
   VStack,
 } from "@chakra-ui/react";
-import { FiCpu } from "react-icons/fi";
+import { FiCheckCircle, FiCpu, FiLoader, FiSearch, FiUsers } from "react-icons/fi";
+import { useNavigate } from "react-router-dom";
 
 import { API_URL } from "../../config/api.config";
 import { ChatState } from "../../Context/ChatProvider";
 import VoiceAgentPanel from "./VoiceAgentPanel";
 
 const WorkspaceAssistant = ({ workspaceId, onTasksCreated }) => {
-  const { user } = ChatState();
+  const { user, chats, setSelectedChat, setHighlightedMessageId } = ChatState();
+  const navigate = useNavigate();
   const { isOpen, onOpen, onClose } = useDisclosure();
   const toast = useToast();
   const [question, setQuestion] = useState("");
   const [planningRequest, setPlanningRequest] = useState("");
-  const [coordinatorQuestion, setCoordinatorQuestion] = useState(
-    "Are we ready for the event? What is blocked?"
-  );
   const [answer, setAnswer] = useState(null);
   const [plan, setPlan] = useState(null);
-  const [coordinatorReport, setCoordinatorReport] = useState(null);
   const [approvalToken, setApprovalToken] = useState(null);
-  const [coordinatorApprovalToken, setCoordinatorApprovalToken] = useState(null);
   const [agentTrace, setAgentTrace] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [activeAction, setActiveAction] = useState(null);
+  const [planningStep, setPlanningStep] = useState(0);
+
+  const planningSteps = [
+    { label: "Reading workspace context", icon: FiSearch },
+    { label: "Searching messages and tasks", icon: FiSearch },
+    { label: "Inspecting existing work", icon: FiCheckCircle },
+    { label: "Checking member workload", icon: FiUsers },
+    { label: "Drafting approval tasks", icon: FiLoader },
+  ];
 
   const config = {
     headers: { Authorization: `Bearer ${user?.token}` },
     timeout: 130000,
   };
 
-  const runRequest = async (request, success) => {
+  useEffect(() => {
+    if (!loading || activeAction !== "plan") {
+      setPlanningStep(0);
+      return undefined;
+    }
+    const interval = setInterval(() => {
+      setPlanningStep((current) =>
+        Math.min(current + 1, planningSteps.length - 1)
+      );
+    }, 1800);
+    return () => clearInterval(interval);
+  }, [activeAction, loading, planningSteps.length]);
+
+  const runRequest = async (request, success, action = null) => {
     setLoading(true);
+    setActiveAction(action);
     try {
       await request();
       if (success) success();
@@ -68,6 +90,7 @@ const WorkspaceAssistant = ({ workspaceId, onTasksCreated }) => {
       });
     } finally {
       setLoading(false);
+      setActiveAction(null);
     }
   };
 
@@ -83,6 +106,9 @@ const WorkspaceAssistant = ({ workspaceId, onTasksCreated }) => {
 
   const createPlan = () =>
     runRequest(async () => {
+      setPlan(null);
+      setApprovalToken(null);
+      setAgentTrace(null);
       const { data } = await axios.post(
         `${API_URL}/ai/workspaces/${workspaceId}/task-plan`,
         { request: planningRequest },
@@ -90,10 +116,8 @@ const WorkspaceAssistant = ({ workspaceId, onTasksCreated }) => {
       );
       setPlan(data.plan);
       setApprovalToken(data.approvalToken);
-      setCoordinatorReport(null);
-      setCoordinatorApprovalToken(null);
       setAgentTrace(data.agent);
-    });
+    }, null, "plan");
 
   const applyPlan = (token = approvalToken, source = "Task plan") =>
     runRequest(
@@ -113,52 +137,40 @@ const WorkspaceAssistant = ({ workspaceId, onTasksCreated }) => {
         });
         setPlan(null);
         setApprovalToken(null);
-        setCoordinatorApprovalToken(null);
         onTasksCreated?.();
       }
     );
 
-  const askCoordinator = () =>
-    runRequest(async () => {
-      const { data } = await axios.post(
-        `${API_URL}/ai/workspaces/${workspaceId}/event-coordinator`,
-        { question: coordinatorQuestion },
-        config
-      );
-      setCoordinatorReport(data.report);
-      setCoordinatorApprovalToken(data.approvalToken);
-      setPlan(null);
-      setApprovalToken(null);
-      setAgentTrace(data.agent);
-    });
+  const openSource = (source) => {
+    if (source.type === "task") {
+      onClose();
+      navigate(`/tasks/${workspaceId}`);
+      return;
+    }
 
-  const renderReportList = (title, items) => (
-    <Box>
-      <Text fontSize="sm" color="gray.400" mb={2}>
-        {title}
-      </Text>
-      {items?.length ? (
-        <List spacing={2}>
-          {items.map((item, index) => (
-            <ListItem
-              key={`${title}-${index}`}
-              p={2}
-              border="1px solid #313b37"
-              bg="#202725"
-              borderRadius="6px"
-              fontSize="sm"
-            >
-              {item}
-            </ListItem>
-          ))}
-        </List>
-      ) : (
-        <Text fontSize="sm" color="gray.500">
-          None found
-        </Text>
-      )}
-    </Box>
-  );
+    if (source.type === "message" && source.chatId) {
+      const chat = chats?.find((item) => item._id === source.chatId);
+      if (!chat) {
+        toast({
+          title: "Source chat is not loaded",
+          description: "Refresh the workspace chats and try opening the source again.",
+          status: "warning",
+        });
+        return;
+      }
+      setSelectedChat(chat);
+      setHighlightedMessageId?.(source.sourceId);
+      onClose();
+      navigate(`/workspace/${workspaceId}/chats`);
+    }
+  };
+
+  const sourceTitle = (source) =>
+    source.type === "message"
+      ? `Source [${source.index}] message in ${source.label || "workspace chat"}`
+      : `Source [${source.index}] ${source.type || "workspace"}: ${
+          source.label || "Workspace"
+        }`;
 
   return (
     <>
@@ -186,7 +198,7 @@ const WorkspaceAssistant = ({ workspaceId, onTasksCreated }) => {
           <ModalHeader borderBottom="1px solid #313b37">
             <Text fontSize="lg">Workspace agents</Text>
             <Text color="#8f9d97" fontSize="xs" fontWeight="400" mt={1}>
-              Search knowledge, plan work, and assess event readiness
+              Search workspace knowledge and plan work
             </Text>
           </ModalHeader>
           <ModalCloseButton _hover={{ bg: "#2c3532" }} />
@@ -195,7 +207,6 @@ const WorkspaceAssistant = ({ workspaceId, onTasksCreated }) => {
               <TabList>
                 <Tab>Ask Workspace</Tab>
                 <Tab>Plan Tasks</Tab>
-                <Tab>Event Coordinator</Tab>
                 <Tab>Voice Agent</Tab>
               </TabList>
               <TabPanels>
@@ -225,11 +236,38 @@ const WorkspaceAssistant = ({ workspaceId, onTasksCreated }) => {
                         <Text fontSize="sm" color="#8f9d97" mb={2}>
                           Sources
                         </Text>
-                        {answer.sources.map((source, index) => (
-                          <Badge key={`${source.sourceId}-${index}`} mr={2} mb={2}>
-                            {source.type}: {source.label}
-                          </Badge>
-                        ))}
+                        <List spacing={2}>
+                          {answer.sources.map((source, index) => (
+                            <ListItem
+                              key={`${source.sourceId}-${index}`}
+                              as="button"
+                              type="button"
+                              textAlign="left"
+                              width="100%"
+                              p={3}
+                              border="1px solid #313b37"
+                              bg="#202725"
+                              borderRadius="6px"
+                              onClick={() => openSource(source)}
+                              _hover={{ borderColor: "#52615b", bg: "#242c29" }}
+                            >
+                              <Badge bg="#2c3532" color="#6ee7b7" mb={2}>
+                                [{source.index}] {source.type}
+                              </Badge>
+                              <Text fontSize="sm" fontWeight="700">
+                                {sourceTitle(source)}
+                              </Text>
+                              {source.createdAt && (
+                                <Text fontSize="xs" color="#8f9d97" mt={1}>
+                                  {new Date(source.createdAt).toLocaleString()}
+                                </Text>
+                              )}
+                              <Text fontSize="xs" color="#bdc8c3" mt={2} noOfLines={3}>
+                                {source.excerpt}
+                              </Text>
+                            </ListItem>
+                          ))}
+                        </List>
                       </Box>
                     )}
                   </VStack>
@@ -245,7 +283,8 @@ const WorkspaceAssistant = ({ workspaceId, onTasksCreated }) => {
                     />
                     <Button
                       onClick={createPlan}
-                      isLoading={loading}
+                      isLoading={loading && activeAction === "plan"}
+                      loadingText="Planning"
                       isDisabled={!planningRequest.trim()}
                       bg="#34d399"
                       color="#07120e"
@@ -253,6 +292,44 @@ const WorkspaceAssistant = ({ workspaceId, onTasksCreated }) => {
                     >
                       Generate Plan
                     </Button>
+                    {loading && activeAction === "plan" && (
+                      <Box
+                        border="1px solid #313b37"
+                        bg="#202725"
+                        borderRadius="6px"
+                        p={3}
+                      >
+                        <Text fontSize="sm" fontWeight="700" color="#eef4f1" mb={3}>
+                          Planning task allocation
+                        </Text>
+                        <VStack align="stretch" spacing={2}>
+                          {planningSteps.map((step, index) => {
+                            const complete = index < planningStep;
+                            const active = index === planningStep;
+                            const IconComponent = step.icon;
+                            return (
+                              <HStack
+                                key={step.label}
+                                spacing={2}
+                                color={complete || active ? "#d7dfdb" : "#6f7d77"}
+                              >
+                                <Box
+                                  as={IconComponent}
+                                  size={14}
+                                  color={complete ? "#34d399" : active ? "#6ee7b7" : "#52615b"}
+                                />
+                                <Text fontSize="xs">{step.label}</Text>
+                                {active && (
+                                  <Badge ml="auto" bg="#26332f" color="#6ee7b7">
+                                    running
+                                  </Badge>
+                                )}
+                              </HStack>
+                            );
+                          })}
+                        </VStack>
+                      </Box>
+                    )}
                     {plan && (
                       <Box>
                         <Text mb={3}>{plan.summary}</Text>
@@ -275,77 +352,6 @@ const WorkspaceAssistant = ({ workspaceId, onTasksCreated }) => {
                             </ListItem>
                           ))}
                         </List>
-                      </Box>
-                    )}
-                  </VStack>
-                </TabPanel>
-                <TabPanel px={0}>
-                  <VStack align="stretch" spacing={4}>
-                    <Textarea
-                      value={coordinatorQuestion}
-                      onChange={(event) =>
-                        setCoordinatorQuestion(event.target.value)
-                      }
-                      placeholder="Are we ready for the event?"
-                      bg="#202725"
-                      borderColor="#3a4541"
-                    />
-                    <Button
-                      onClick={askCoordinator}
-                      isLoading={loading}
-                      isDisabled={!coordinatorQuestion.trim()}
-                      bg="#34d399"
-                      color="#07120e"
-                      _hover={{ bg: "#6ee7b7" }}
-                    >
-                      Analyze Event
-                    </Button>
-                    {coordinatorReport && (
-                      <Box display="flex" flexDirection="column" gap={4}>
-                        <Badge alignSelf="flex-start">
-                          {coordinatorReport.readiness}
-                        </Badge>
-                        <Text whiteSpace="pre-wrap">
-                          {coordinatorReport.answer}
-                        </Text>
-                        {renderReportList(
-                          "Blocked items",
-                          coordinatorReport.blocked_items
-                        )}
-                        {renderReportList(
-                          "Overloaded members",
-                          coordinatorReport.overloaded_members
-                        )}
-                        {renderReportList(
-                          "Follow-up tasks",
-                          coordinatorReport.follow_up_tasks
-                        )}
-                        {renderReportList("Risks", coordinatorReport.risks)}
-                        {coordinatorReport.proposed_tasks?.length > 0 && (
-                          <Box>
-                            <Text fontSize="sm" color="gray.400" mb={2}>
-                              Approval-gated tasks drafted by the agent
-                            </Text>
-                            <List spacing={2}>
-                              {coordinatorReport.proposed_tasks.map((task, index) => (
-                                <ListItem
-                                  key={`${task.heading}-${index}`}
-                                  p={2}
-                                  border="1px solid #313b37"
-                                  bg="#202725"
-                                  borderRadius="6px"
-                                  fontSize="sm"
-                                >
-                                  <Text fontWeight="semibold">{task.heading}</Text>
-                                  <Text color="gray.300">{task.description}</Text>
-                                  <Text fontSize="xs" color="gray.400" mt={1}>
-                                    {task.assigneeEmail} - {task.priority}
-                                  </Text>
-                                </ListItem>
-                              ))}
-                            </List>
-                          </Box>
-                        )}
                       </Box>
                     )}
                   </VStack>
@@ -376,20 +382,6 @@ const WorkspaceAssistant = ({ workspaceId, onTasksCreated }) => {
                 isLoading={loading}
               >
                 Approve and Create Tasks
-              </Button>
-            )}
-            {coordinatorApprovalToken && (
-              <Button
-                bg="#34d399"
-                color="#07120e"
-                _hover={{ bg: "#6ee7b7" }}
-                mr={3}
-                onClick={() =>
-                  applyPlan(coordinatorApprovalToken, "Coordinator follow-up")
-                }
-                isLoading={loading}
-              >
-                Approve Follow-up Tasks
               </Button>
             )}
             <Button variant="ghost" color="#bdc8c3" onClick={onClose} _hover={{ bg: "#202725" }}>

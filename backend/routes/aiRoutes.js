@@ -2,7 +2,6 @@ const express = require("express");
 const {
   applyWorkspaceTaskPlan,
   askWorkspaceAssistant,
-  coordinateWorkspaceEvent,
   createWorkspaceTaskPlan,
   summarizeGroupChat,
   syncWorkspaceKnowledge,
@@ -23,7 +22,6 @@ router.post("/workspaces/:workspaceId/sync", syncWorkspaceKnowledge);
 router.post("/workspaces/:workspaceId/ask", askWorkspaceAssistant);
 router.post("/workspaces/:workspaceId/task-plan", createWorkspaceTaskPlan);
 router.post("/workspaces/:workspaceId/task-plan/apply", applyWorkspaceTaskPlan);
-router.post("/workspaces/:workspaceId/event-coordinator", coordinateWorkspaceEvent);
 router.post("/workspaces/:workspaceId/voice-command", runVoiceCommand);
 router.post("/voice/livekit-token", createVoiceSession);
 router.post("/voice/greeting", greetVoiceAgent);

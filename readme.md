@@ -14,7 +14,6 @@ tasks, notifications, and AI-assisted planning.
 - Workspace-scoped RAG over chats, tasks, and workspace metadata
 - Approval-gated LangChain task planning agent
 - Group chat summarizer
-- Event coordinator agent
 - Swagger API documentation
 - Docker Compose, Render/Vercel, and AWS ECS deployment paths
 

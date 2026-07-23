@@ -3,7 +3,10 @@ const asyncHandler = require("express-async-handler");
 const Task = require("../models/taskModel");
 const User = require("../models/userModel");
 const { getWorkspaceForMember } = require("../services/workspaceAccessService");
-const { queueKnowledgeUpsert } = require("../services/knowledgeIndexService");
+const {
+  queueKnowledgeDelete,
+  queueKnowledgeUpsert,
+} = require("../services/knowledgeIndexService");
 const { extractTags, normalizeTags } = require("../services/tagService");
 const { buildTaskDocument } = require("../services/workspaceKnowledgeService");
 const { recordAnalyticsEvent } = require("../services/opensearchAnalyticsService");
@@ -166,9 +169,36 @@ const addComment = asyncHandler(async (req, res) => {
   res.json(task);
 });
 
+const deleteTask = asyncHandler(async (req, res) => {
+  const task = await Task.findById(req.params.taskId);
+  if (!task) {
+    res.status(404);
+    throw new Error("Task not found");
+  }
+
+  await getWorkspaceForMember(task.workspace, req.user._id);
+  if (task.createdBy.toString() !== req.user._id.toString()) {
+    res.status(403);
+    throw new Error("Only the user who allocated this task can delete it");
+  }
+
+  await task.deleteOne();
+  queueKnowledgeDelete(task.workspace, [`task-${task._id}`]).catch((error) => {
+    console.error("Unable to queue task index deletion:", error.message);
+  });
+  recordAnalyticsEvent("task.deleted", {
+    request_id: req.requestId,
+    actor_user_id: req.user._id.toString(),
+    workspace_id: task.workspace?.toString(),
+    task_id: task._id.toString(),
+  });
+  res.json({ deleted: true, taskId: task._id.toString() });
+});
+
 module.exports = {
   addComment,
   allocateTask,
+  deleteTask,
   getAllocatedTasks,
   getMyTasks,
   getWorkspaceTasks,

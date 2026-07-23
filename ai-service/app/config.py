@@ -18,6 +18,9 @@ class Config:
     LLM_BASE_URL = os.getenv("LLM_BASE_URL") or (
         OPENROUTER_BASE_URL if OPENROUTER_API_KEY else OPENAI_BASE_URL
     )
+    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").lower()
+    OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b")
     LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "2048"))
     OPENAI_EMBEDDING_API_KEY = os.getenv(
         "OPENAI_EMBEDDING_API_KEY", OPENAI_API_KEY
@@ -26,6 +29,8 @@ class Config:
     OPENAI_EMBEDDING_MODEL = os.getenv(
         "OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"
     )
+    EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "openai").lower()
+    OLLAMA_EMBEDDING_MODEL = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
     EMBEDDING_DIMENSIONS = int(os.getenv("EMBEDDING_DIMENSIONS", "1536"))
     VECTOR_STORE_BACKEND = os.getenv("VECTOR_STORE_BACKEND", "chroma").lower()
     CHROMA_DIR = os.getenv("CHROMA_DIR", "/data/chroma")

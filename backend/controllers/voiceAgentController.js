@@ -7,7 +7,6 @@ const jwt = require("jsonwebtoken");
 const {
   answerChat,
   askWorkspace,
-  coordinateEvent,
   planTasks,
 } = require("../services/aiServiceClient");
 const Chat = require("../models/chatModel");
@@ -181,9 +180,6 @@ const transcribeBuffer = async (audio, mimeType) => {
 const detectIntent = (transcript) => {
   const text = transcript.toLowerCase();
   if (/\b(call|phone|helpline|human|support)\b/.test(text)) return "human_call";
-  if (/\b(event|readiness|ready|blocked|blocker|risk|coordinate|coordinator)\b/.test(text)) {
-    return "event";
-  }
   if (/\b(task|tasks|assign|allocate|todo|to-do|follow[- ]?up|plan|checklist)\b/.test(text)) {
     return "task";
   }
@@ -338,40 +334,6 @@ const runVoiceCommand = asyncHandler(async (req, res) => {
         tasks: plannedTasks,
         source: "voice-task-agent",
       }),
-      agent: result.agent,
-      audio: await synthesizeSpeech(message),
-    });
-  }
-
-  if (intent === "event") {
-    const result = await coordinateEvent(
-      workspace._id.toString(),
-      transcript,
-      members,
-      tasks
-    );
-    const proposedTasks = normalizeAgentTasks(
-      result.report.proposed_tasks,
-      req.user.email
-    );
-    const message = `${result.report.answer} Readiness is ${result.report.readiness}. ${
-      proposedTasks.length
-        ? `I drafted ${proposedTasks.length} follow-up task${proposedTasks.length === 1 ? "" : "s"} for approval.`
-        : ""
-    }`;
-    return res.json({
-      intent,
-      transcript,
-      message,
-      report: { ...result.report, proposed_tasks: proposedTasks },
-      approvalToken: proposedTasks.length
-        ? createApprovalToken({
-            workspaceId: workspace._id.toString(),
-            userId: req.user._id.toString(),
-            tasks: proposedTasks,
-            source: "voice-event-agent",
-          })
-        : null,
       agent: result.agent,
       audio: await synthesizeSpeech(message),
     });

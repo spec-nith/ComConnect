@@ -3,6 +3,10 @@ boto3>=1.35,<2
 gunicorn>=23,<24
 langchain>=1.2,<2
 langchain-chroma>=1.1,<2
+langchain-ollama>=1.0,<2
 langchain-openai>=1.1,<2
 opensearch-py>=2.8,<4
 pydantic>=2.10,<3
+datasets>=4,<6
+langsmith>=0.2,<1
+ragas==0.4.3

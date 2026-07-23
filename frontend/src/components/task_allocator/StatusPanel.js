@@ -73,6 +73,7 @@ const StatusPanel = ({
             task={task}
             fetchTasks={fetchTasks}
             config={config}
+            currentUserId={currentUserId}
             draggable={
               task.assignee?._id === currentUserId ||
               task.createdBy?._id === currentUserId

@@ -6,6 +6,7 @@ import boto3
 from flask import current_app
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
+from langchain_ollama import OllamaEmbeddings
 from langchain_openai import OpenAIEmbeddings
 from opensearchpy import (
     AWSV4SignerAuth,
@@ -22,6 +23,12 @@ def _collection_name(workspace_id):
 
 
 def _embeddings():
+    if current_app.config.get("EMBEDDING_PROVIDER") == "ollama":
+        return OllamaEmbeddings(
+            model=current_app.config["OLLAMA_EMBEDDING_MODEL"],
+            base_url=current_app.config["OLLAMA_BASE_URL"],
+        )
+
     kwargs = {}
     if current_app.config.get("OPENAI_EMBEDDING_BASE_URL"):
         kwargs["base_url"] = current_app.config["OPENAI_EMBEDDING_BASE_URL"]
@@ -41,6 +48,8 @@ def _embedding_api_key():
 
 
 def _has_embedding_config():
+    if current_app.config.get("EMBEDDING_PROVIDER") == "ollama":
+        return bool(current_app.config.get("OLLAMA_EMBEDDING_MODEL"))
     return bool(_embedding_api_key())
 
 

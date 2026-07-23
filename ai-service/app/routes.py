@@ -1,10 +1,11 @@
 from flask import Blueprint, jsonify, request
+from langchain_core.documents import Document
 
 from .auth import require_service_token
 from .chains import (
     answer_chat_context,
     answer_question,
-    coordinate_event,
+    answer_question_with_documents,
     create_task_plan,
     summarize_chat,
 )
@@ -22,11 +23,15 @@ api = Blueprint("api", __name__)
 def _sources(documents):
     return [
         {
+            "index": index + 1,
             "type": document.metadata.get("type"),
             "label": document.metadata.get("label"),
             "sourceId": document.metadata.get("source_id"),
+            "chatId": document.metadata.get("chat_id"),
+            "createdAt": document.metadata.get("created_at"),
+            "excerpt": document.page_content[:500],
         }
-        for document in documents
+        for index, document in enumerate(documents)
     ]
 
 
@@ -74,7 +79,23 @@ def ask_workspace(workspace_id):
     question = payload.get("question", "").strip()
     if not question:
         return jsonify({"message": "question is required"}), 400
-    answer, documents = answer_question(workspace_id, question)
+    supplied_documents = payload.get("documents") or []
+    if supplied_documents:
+        documents = [
+            Document(
+                page_content=str(document.get("content", "")),
+                metadata=document.get("metadata") or {},
+            )
+            for document in supplied_documents[:20]
+            if str(document.get("content", "")).strip()
+        ]
+        answer, documents = answer_question_with_documents(
+            workspace_id,
+            question,
+            documents,
+        )
+    else:
+        answer, documents = answer_question(workspace_id, question)
     return jsonify({"answer": answer, "sources": _sources(documents)})
 
 
@@ -143,22 +164,6 @@ def plan_workspace_tasks(workspace_id):
             "agent": trace,
         }
     )
-
-
-@api.post("/workspaces/<workspace_id>/event-coordinator")
-@require_service_token
-def coordinate_workspace_event(workspace_id):
-    payload = request.get_json(silent=True) or {}
-    question = payload.get("question", "").strip()
-    if not question:
-        return jsonify({"message": "question is required"}), 400
-    report, trace = coordinate_event(
-        workspace_id,
-        question,
-        payload.get("members", []),
-        payload.get("tasks", []),
-    )
-    return jsonify({"report": report.model_dump(), "agent": trace})
 
 
 @api.post("/chats/summary")

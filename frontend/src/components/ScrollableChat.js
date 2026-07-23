@@ -1,4 +1,5 @@
 import { Avatar, Spinner, Tooltip } from "@chakra-ui/react";
+import { useEffect, useRef } from "react";
 import ScrollableFeed from "react-scrollable-feed";
 import { FiCheck } from "react-icons/fi";
 import {
@@ -10,8 +11,9 @@ import {
 import { ChatState } from "../Context/ChatProvider";
 
 const ScrollableChat = ({ messages, pendingMessages = [] }) => {
-  const { user } = ChatState();
+  const { user, highlightedMessageId, setHighlightedMessageId } = ChatState();
   const allMessages = [...messages, ...pendingMessages];
+  const messageRefs = useRef({});
   const idOf = (value) => (value?._id || value)?.toString();
   const messageReadByRecipients = (message) => {
     const recipientIds = (message.chat?.users || [])
@@ -23,6 +25,24 @@ const ScrollableChat = ({ messages, pendingMessages = [] }) => {
     return recipientIds.every((recipientId) => readByIds.has(recipientId));
   };
 
+  useEffect(() => {
+    if (!highlightedMessageId) return undefined;
+    const target = messageRefs.current[highlightedMessageId];
+    if (!target) return undefined;
+    const timer = setTimeout(() => {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.classList.add("message-row--highlighted");
+    }, 150);
+    const clearTimer = setTimeout(() => {
+      target.classList.remove("message-row--highlighted");
+      setHighlightedMessageId?.(null);
+    }, 3600);
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(clearTimer);
+    };
+  }, [highlightedMessageId, setHighlightedMessageId, allMessages.length]);
+
   return (
     <ScrollableFeed>
       <div className="message-feed">
@@ -33,7 +53,13 @@ const ScrollableChat = ({ messages, pendingMessages = [] }) => {
             isLastMessage(allMessages, index, user._id);
 
           return (
-            <div className="message-row" key={message._id}>
+            <div
+              className="message-row"
+              key={message._id}
+              ref={(element) => {
+                if (element) messageRefs.current[message._id] = element;
+              }}
+            >
               {showAvatar && (
                 <Tooltip label={message.sender.name} placement="bottom-start" hasArrow>
                   <Avatar

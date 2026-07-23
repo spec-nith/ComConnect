@@ -41,7 +41,7 @@ const searchWorkspaceHistory = asyncHandler(async (req, res) => {
     });
   }
 
-  const [messages, tasks, messageCount] = await Promise.all([
+  const [messages, tasks, workspaceMessageCount, matchedMessageCount, matchedTaskCount] = await Promise.all([
     Message.find({ $and: messageConditions })
       .sort({ createdAt: -1 })
       .limit(limit)
@@ -53,6 +53,8 @@ const searchWorkspaceHistory = asyncHandler(async (req, res) => {
       .populate("assignee", "name email")
       .lean(),
     Message.countDocuments({ chat: { $in: chatIds } }),
+    Message.countDocuments({ $and: messageConditions }),
+    Task.countDocuments({ $and: taskConditions }),
   ]);
 
   const directResults = [
@@ -82,7 +84,7 @@ const searchWorkspaceHistory = asyncHandler(async (req, res) => {
   const ragThreshold = Number(process.env.WORKSPACE_RAG_MESSAGE_THRESHOLD || 200);
   let strategy = "database";
   let ragResults = [];
-  if ((query || tags.length) && messageCount > ragThreshold) {
+  if (query || tags.length) {
     try {
       await syncWorkspace(workspace);
       const rag = await searchWorkspace(workspace._id.toString(), query, tags, limit);
@@ -112,7 +114,11 @@ const searchWorkspaceHistory = asyncHandler(async (req, res) => {
 
   res.json({
     strategy,
-    messageCount,
+    messageCount: workspaceMessageCount,
+    workspaceMessageCount,
+    matchedMessageCount,
+    matchedTaskCount,
+    resultCount: Math.min(merged.size, limit),
     ragThreshold,
     results: [...merged.values()]
       .map(({ item, rrfScore }) => ({ ...item, score: rrfScore / maxScore }))

@@ -10,8 +10,7 @@ ComConnect provides:
 1. Workspace question answering grounded in messages and tasks.
 2. Workspace search using keywords, tags, and semantic similarity.
 3. A task-planning agent that researches the workspace and drafts tasks.
-4. An event-coordinator agent that investigates readiness and drafts follow-ups.
-5. A group-chat summarizer.
+4. A group-chat summarizer.
 
 The Node AI orchestrator owns authentication, workspace authorization, MongoDB
 data, signed approvals, and business writes. The private Python AI engine owns
@@ -149,25 +148,21 @@ write wait for an external embedding request.
 Workspace search returns records. Workspace question answering generates a
 natural-language answer.
 
-### Small Workspace Search
+### Workspace Search
 
-At or below `WORKSPACE_RAG_MESSAGE_THRESHOLD`, default `200`, search uses:
+For a query or tag filter, search uses:
 
 - MongoDB case-insensitive text matching
 - stored tags
 - hashtags found in content
-- recent-first ordering
+- semantic retrieval through the AI vector store
+- RRF merge and deduplication
 
-No LLM or embedding call is made.
+If vector retrieval fails, the database results still work. Empty search still
+returns recent exact workspace history without calling the vector store.
 
-The threshold refers to total workspace message count, not the length of the
-user's query.
-
-### Large Workspace Search
-
-Above the threshold, the application runs MongoDB keyword/tag search and vector
-retrieval, then merges and deduplicates the results. If vector retrieval fails,
-the database results still work.
+`WORKSPACE_RAG_MESSAGE_THRESHOLD` remains in the response for compatibility and
+debugging, but it no longer gates semantic search.
 
 ### Production Hybrid Retrieval
 
@@ -214,9 +209,9 @@ Retrieved workspace content is always treated as untrusted.
 
 ## 8. What Makes The Agents Agents
 
-The task planner and event coordinator use LangChain `create_agent` with real
-tools. The model can choose tools, inspect results, call more tools, and then
-produce a structured response.
+The task planner uses LangChain `create_agent` with real tools. The model can
+choose tools, inspect results, call more tools, and then produce a structured
+response.
 
 ### `search_workspace_knowledge`
 
@@ -276,22 +271,7 @@ The agent receives the request and member list. It should:
 The tool-generated draft list is authoritative for execution. Final model text
 cannot introduce additional executable tasks.
 
-## 11. Event Coordinator Agent
-
-The coordinator investigates task state, historical decisions, blockers,
-workload, missing work, and event risk. It returns:
-
-- readiness classification
-- direct answer
-- blocked items
-- overloaded members
-- risks
-- follow-up descriptions
-- optional approval-gated proposed tasks
-
-Coordinator tasks use the same approval and execution path as task planning.
-
-## 12. Chat Summarizer
+## 11. Chat Summarizer
 
 The group-chat summarizer is not RAG and is not a tool-using agent. It sends the
 latest 200 messages to a structured prompt and extracts:
@@ -305,7 +285,7 @@ latest 200 messages to a structured prompt and extracts:
 For very long chats, a future production extension should summarize batches and
 then summarize those summaries.
 
-## 13. AWS Architecture
+## 12. AWS Architecture
 
 ```mermaid
 flowchart LR
@@ -336,7 +316,7 @@ AWS responsibilities:
 - ECR stores service images.
 - CloudWatch stores logs and container metrics.
 
-## 14. Benefits And Tradeoffs
+## 13. Benefits And Tradeoffs
 
 ### OpenSearch Serverless
 
@@ -385,7 +365,7 @@ Cons:
 - requires tool-loop timeouts and tests
 - incorrect tool choice remains possible
 
-## 15. MLOps And LLMOps
+## 14. MLOps And LLMOps
 
 Production telemetry should include:
 
@@ -421,7 +401,7 @@ Model, prompt, embedding, and retriever changes should pass evaluations before
 staging, canary, and production promotion. Changing embedding dimensions
 requires a new index or complete re-embedding migration.
 
-## 16. Failure Behavior
+## 15. Failure Behavior
 
 - Model unavailable: AI requests fail; normal MongoDB features continue.
 - Vector store unavailable: workspace search falls back to MongoDB.
@@ -430,7 +410,7 @@ requires a new index or complete re-embedding migration.
 - Changed or expired approval token: backend rejects execution.
 - AI task restart: OpenSearch data remains available.
 
-## 17. Remaining Operational Work
+## 16. Remaining Operational Work
 
 The code is production-oriented, but operating it responsibly still requires:
 
@@ -445,7 +425,7 @@ The code is production-oriented, but operating it responsibly still requires:
 - scheduled reconciliation/backfill
 - idempotency records for approved executions
 
-## 18. Architecture Review Questions
+## 17. Architecture Review Questions
 
 - What freshness delay is acceptable after a new message?
 - How are out-of-order indexing events handled?
@@ -457,7 +437,7 @@ The code is production-oriented, but operating it responsibly still requires:
 - What is the embedding migration rollback plan?
 - Which metrics prove a retriever is better?
 
-## 19. Code Map
+## 18. Code Map
 
 Python:
 
@@ -482,7 +462,7 @@ Infrastructure:
 - `infra/aws/main.tf`: production OpenSearch and ECS stack.
 - `.github/workflows/deploy-aws.yml`: deployment workflow.
 
-## 20. Mental Model
+## 19. Mental Model
 
 Use MongoDB for exact business facts. Use retrieval for relevant unstructured
 history. Use the LLM to synthesize evidence. Use agents when the model must

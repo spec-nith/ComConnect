@@ -7,6 +7,7 @@ docker-publish.sh
 /coverage
 __pycache__/
 *.py[cod]
+.pytest-tmp/
 
 docker-test.sh 
 

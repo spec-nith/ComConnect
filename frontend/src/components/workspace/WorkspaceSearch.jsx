@@ -34,6 +34,7 @@ const WorkspaceSearch = ({ workspaceId }) => {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchMeta, setSearchMeta] = useState(null);
+  const [searchedTerms, setSearchedTerms] = useState({ query: "", tags: [] });
   const storageKey = `workspace-search-history:${workspaceId}`;
   const [history, setHistory] = useState(() => {
     try {
@@ -70,6 +71,7 @@ const WorkspaceSearch = ({ workspaceId }) => {
         );
         setResults(data.results || []);
         setSearchMeta(data);
+        setSearchedTerms({ query: nextQuery.trim(), tags: nextTags });
 
         if (remember && (nextQuery.trim() || nextTags.length)) {
           const entry = { query: nextQuery.trim(), tags: nextTags };
@@ -101,6 +103,21 @@ const WorkspaceSearch = ({ workspaceId }) => {
     onOpen();
     runSearch("", [], false);
   };
+
+  const hasSearchTerms = Boolean(
+    searchedTerms.query || searchedTerms.tags.length
+  );
+  const resultSummary = searchMeta
+    ? hasSearchTerms
+      ? `${searchMeta.resultCount || results.length} results`
+      : `${searchMeta.workspaceMessageCount ?? searchMeta.messageCount ?? 0} workspace messages`
+    : "";
+  const matchSummary =
+    searchMeta && hasSearchTerms
+      ? `${searchMeta.matchedMessageCount ?? 0} message matches, ${
+          searchMeta.matchedTaskCount ?? 0
+        } task matches`
+      : "";
 
   const selectResult = (result) => {
     if (result.type === "task") {
@@ -205,10 +222,11 @@ const WorkspaceSearch = ({ workspaceId }) => {
                   {searchMeta?.strategy === "hybrid-rag"
                     ? "Hybrid keyword + semantic retrieval"
                     : "Recent and exact workspace history"}
+                  {matchSummary ? ` - ${matchSummary}` : ""}
                 </Text>
                 {searchMeta && (
                   <Badge bg="#26332e" color="#6ee7b7">
-                    {searchMeta.messageCount} messages
+                    {resultSummary}
                   </Badge>
                 )}
               </Flex>

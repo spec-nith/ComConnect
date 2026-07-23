@@ -263,18 +263,21 @@ const TaskAllocator = ({ workspaceId }) => {
               onSubmit={allocateTask}
               position={{ xl: "sticky" }}
               top={{ xl: "24px" }}
+              border="1px solid #313b37"
               borderTop="2px solid #34d399"
               bg="#171c1b"
-              p={5}
+              p={4}
             >
-              <HStack mb={1}>
+              <HStack mb={4} justify="space-between">
+                <HStack>
                 <Icon as={FiPlus} color="#34d399" />
                 <Text fontWeight="750">Allocate a task</Text>
+                </HStack>
+                <Text color="#6f7d77" fontSize="xs">
+                  Manual
+                </Text>
               </HStack>
-              <Text color="#8f9d97" fontSize="sm" mb={5}>
-                Assign a focused piece of work to a workspace member.
-              </Text>
-              <Stack spacing={4}>
+              <Stack spacing={3}>
                 <FormControl isRequired>
                   <FormLabel fontSize="sm" color="#bdc8c3">Task name</FormLabel>
                   <Input
@@ -291,20 +294,31 @@ const TaskAllocator = ({ workspaceId }) => {
                     value={form.description}
                     onChange={updateField("description")}
                     placeholder="Add the outcome and any useful context"
-                    minH="110px"
+                    minH="96px"
                     resize="vertical"
                   />
                 </FormControl>
-                <FormControl isRequired>
-                  <FormLabel fontSize="sm" color="#bdc8c3">Assignee email</FormLabel>
-                  <Input
-                    {...fieldStyles}
-                    type="email"
-                    value={form.email}
-                    onChange={updateField("email")}
-                    placeholder="member@example.com"
-                  />
-                </FormControl>
+                <SimpleGrid columns={{ base: 1, md: 2, xl: 1 }} spacing={3}>
+                  <FormControl isRequired>
+                    <FormLabel fontSize="sm" color="#bdc8c3">Assignee email</FormLabel>
+                    <Input
+                      {...fieldStyles}
+                      type="email"
+                      value={form.email}
+                      onChange={updateField("email")}
+                      placeholder="member@example.com"
+                    />
+                  </FormControl>
+                  <FormControl>
+                    <FormLabel fontSize="sm" color="#bdc8c3">Tags</FormLabel>
+                    <Input
+                      {...fieldStyles}
+                      value={form.tags}
+                      onChange={updateField("tags")}
+                      placeholder="venue, urgent"
+                    />
+                  </FormControl>
+                </SimpleGrid>
                 <FormControl>
                   <FormLabel fontSize="sm" color="#bdc8c3">Attachment links</FormLabel>
                   <Input
@@ -314,21 +328,13 @@ const TaskAllocator = ({ workspaceId }) => {
                     placeholder="Comma-separated URLs"
                   />
                 </FormControl>
-                <FormControl>
-                  <FormLabel fontSize="sm" color="#bdc8c3">Tags</FormLabel>
-                  <Input
-                    {...fieldStyles}
-                    value={form.tags}
-                    onChange={updateField("tags")}
-                    placeholder="venue, urgent, launch"
-                  />
-                </FormControl>
                 <Button
                   type="submit"
                   bg="#34d399"
                   color="#07120e"
                   leftIcon={<FiPlus />}
                   isLoading={submitting}
+                  loadingText="Creating task"
                   _hover={{ bg: "#6ee7b7" }}
                 >
                   Allocate task

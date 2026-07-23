@@ -15,7 +15,6 @@ ComConnect is an event collaboration application with:
 - workspace-scoped retrieval augmented generation (RAG)
 - an approval-gated task planning agent
 - group chat summarization
-- an event coordinator agent
 
 The codebase is a monorepo microservices system. Shared backend modules stay in
 one repository, but every service has its own Dockerfile, image, container,
@@ -62,7 +61,6 @@ flowchart LR
   AIEngine --> RAG["Workspace RAG Assistant"]
   AIEngine --> Planner["Task Planning Agent"]
   AIEngine --> Summary["Chat Summarizer"]
-  AIEngine --> Coordinator["Event Coordinator Agent"]
 ```
 
 Only the API gateway is public. Internal services are addressed by service name
@@ -80,8 +78,8 @@ on the Docker, Render private, or AWS Cloud Map network.
 | Task service | 5103 | Task assignment, status, comments, workspace task queries | MongoDB |
 | Notification service | 5104 | FCM tokens, Kafka producer/consumer, Redis token cache, push delivery | MongoDB, Redis, Kafka, Firebase |
 | AI orchestrator | 5105 | JWT and workspace authorization, source document assembly, task-plan approvals | MongoDB, AI engine |
-| AI engine | 5001 | Hybrid RAG, tool-using agents, structured AI outputs | Chroma/OpenSearch, embedding model, chat model |
-| Frontend | 3000 | Responsive workspace, chat, task, RAG, planner, summary, and coordinator UI | API gateway |
+| AI engine | 5001 | Hybrid RAG, task-planning agent, structured AI outputs | Chroma/OpenSearch, embedding model, chat model |
+| Frontend | 3000 | Responsive workspace, chat, task, RAG, planner, and summary UI | API gateway |
 
 Service entry points live in `backend/microservices`. Service-specific
 Dockerfiles live in `backend/dockerfiles`. `backend/server.js` remains a compact
@@ -340,20 +338,7 @@ structured as:
 The orchestrator verifies that the current user can access the chat, loads the
 messages, and sends only that chat transcript to the AI engine.
 
-## 11. Event Coordinator Agent
-
-The coordinator combines task state, chat activity, and workspace membership to
-answer:
-
-- Are we ready for the event?
-- What is blocked?
-- Who has too many tasks?
-- Which tasks need follow-up?
-
-It produces readiness, blockers, workload concerns, follow-ups, and evidence.
-It is advisory and does not modify tasks.
-
-## 12. Data Ownership
+## 11. Data Ownership
 
 The current migration-safe design uses a shared MongoDB cluster and shared
 Mongoose model package. Logical ownership is:
@@ -371,7 +356,7 @@ The next isolation step is database-per-service or schema-per-service with
 events for cross-service projections. The gateway and runtime split means that
 change does not require changing frontend API paths.
 
-## 13. Local Runtime
+## 12. Local Runtime
 
 ```bash
 docker compose up --build
@@ -386,7 +371,7 @@ URLs:
 - aggregate service health: `http://localhost:5000/health/services`
 - AI engine direct health: `http://localhost:5001/health`
 
-## 14. Deployment Architectures
+## 13. Deployment Architectures
 
 ### Render and Vercel
 
@@ -427,7 +412,7 @@ flowchart LR
 Terraform is in `infra/aws`. CloudFront forwards `/api/*` and `/socket.io/*` to
 the ALB, so the frontend can use one HTTPS origin.
 
-## 15. CI/CD
+## 14. CI/CD
 
 - `ci.yml`: Node syntax checks, frontend build, Flask tests, Compose validation,
   Terraform formatting and validation.

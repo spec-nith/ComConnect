@@ -5,7 +5,8 @@ const {
   getAllocatedTasks,
   getWorkspaceTasks,
   updateTaskStatus,
-  addComment
+  addComment,
+  deleteTask
 } = require('../controllers/taskController');
 const { protect } = require("../middleware/authMiddleware");
  
@@ -18,5 +19,6 @@ router.get('/allocated-tasks', protect, getAllocatedTasks);
 router.get('/workspace/:workspaceId', protect, getWorkspaceTasks);
 router.patch('/update-status', protect, updateTaskStatus);
 router.post('/add-comment', protect, addComment);
+router.delete('/:taskId', protect, deleteTask);
 
 module.exports = router;

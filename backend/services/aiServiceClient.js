@@ -54,10 +54,10 @@ const deleteWorkspaceDocuments = (workspaceId, ids) =>
     body: JSON.stringify({ ids }),
   });
 
-const askWorkspace = (workspaceId, question) =>
+const askWorkspace = (workspaceId, question, documents = []) =>
   requestAiService(`/v1/workspaces/${workspaceId}/ask`, {
     method: "POST",
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({ question, documents }),
   });
 
 const searchWorkspace = (workspaceId, query, tags = [], limit = 12) =>
@@ -70,12 +70,6 @@ const planTasks = (workspaceId, request, members, tasks) =>
   requestAiService(`/v1/workspaces/${workspaceId}/task-plan`, {
     method: "POST",
     body: JSON.stringify({ request, members, tasks }),
-  });
-
-const coordinateEvent = (workspaceId, question, members, tasks) =>
-  requestAiService(`/v1/workspaces/${workspaceId}/event-coordinator`, {
-    method: "POST",
-    body: JSON.stringify({ question, members, tasks }),
   });
 
 const summarizeChat = (chatName, messages) =>
@@ -93,7 +87,6 @@ const answerChat = (chatName, question, messages) =>
 module.exports = {
   answerChat,
   askWorkspace,
-  coordinateEvent,
   deleteWorkspaceDocuments,
   indexWorkspace,
   planTasks,

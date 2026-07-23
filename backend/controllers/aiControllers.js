@@ -9,7 +9,6 @@ const Task = require("../models/taskModel");
 const WorkspaceKnowledgeState = require("../models/workspaceKnowledgeStateModel");
 const {
   askWorkspace,
-  coordinateEvent,
   planTasks,
   resetWorkspaceDocuments,
   summarizeChat,
@@ -18,6 +17,7 @@ const {
 const { getWorkspaceForMember } = require("../services/workspaceAccessService");
 const { queueKnowledgeUpsert } = require("../services/knowledgeIndexService");
 const {
+  buildMessageDocument,
   buildTaskDocument,
   iterateWorkspaceDocumentBatches,
   loadAgentTaskState,
@@ -137,6 +137,103 @@ const createApprovalToken = ({ workspaceId, userId, tasks, source }) =>
     { expiresIn: "30m" }
   );
 
+const QUESTION_STOP_WORDS = new Set([
+  "about",
+  "also",
+  "and",
+  "are",
+  "did",
+  "for",
+  "from",
+  "have",
+  "how",
+  "made",
+  "the",
+  "there",
+  "this",
+  "was",
+  "were",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "why",
+  "with",
+]);
+
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const getQuestionTerms = (question) =>
+  [
+    ...new Set(
+      question
+        .toLowerCase()
+        .match(/[a-z0-9]+/g)
+        ?.filter((term) => term.length >= 3 && !QUESTION_STOP_WORDS.has(term)) || []
+    ),
+  ].slice(0, 12);
+
+const scoreDocument = (document, terms) => {
+  const content = document.content.toLowerCase();
+  return terms.reduce(
+    (score, term) => score + (content.includes(term) ? 1 : 0),
+    0
+  );
+};
+
+const loadWorkspaceQuestionDocuments = async (workspace, question) => {
+  const terms = getQuestionTerms(question);
+  if (!terms.length) return [];
+
+  const regex = new RegExp(terms.map(escapeRegex).join("|"), "i");
+  const chats = await Chat.find({ workspace: workspace._id })
+    .select("_id chatName")
+    .lean();
+  const chatIds = chats.map((chat) => chat._id);
+  const chatNames = new Map(chats.map((chat) => [chat._id.toString(), chat.chatName]));
+
+  const [messages, tasks] = await Promise.all([
+    Message.find({
+      chat: { $in: chatIds },
+      content: regex,
+    })
+      .sort({ createdAt: -1 })
+      .limit(30)
+      .populate("sender", "name email")
+      .lean(),
+    Task.find({
+      workspace: workspace._id,
+      $or: [{ heading: regex }, { description: regex }, { tags: { $in: terms } }],
+    })
+      .sort({ updatedAt: -1 })
+      .limit(15)
+      .populate("assignee createdBy comments.user", "name email")
+      .lean(),
+  ]);
+
+  return [
+    ...messages.map((message) =>
+      buildMessageDocument({
+        ...message,
+        chat: {
+          _id: message.chat,
+          chatName: chatNames.get(message.chat.toString()) || "chat",
+        },
+      })
+    ),
+    ...tasks.map(buildTaskDocument),
+  ]
+    .map((document) => ({
+      document,
+      score: scoreDocument(document, terms),
+    }))
+    .filter(({ score }) => score > 0)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 10)
+    .map(({ document }) => document);
+};
+
 const syncWorkspaceKnowledge = asyncHandler(async (req, res) => {
   const workspace = await getWorkspaceForMember(req.params.workspaceId, req.user._id);
   const result = await syncWorkspace(workspace, true);
@@ -152,7 +249,18 @@ const askWorkspaceAssistant = asyncHandler(async (req, res) => {
 
   const workspace = await getWorkspaceForMember(req.params.workspaceId, req.user._id);
   await syncWorkspace(workspace);
-  const result = await askWorkspace(workspace._id.toString(), question);
+  let result = await askWorkspace(workspace._id.toString(), question);
+  if (!result.sources?.length) {
+    const fallbackDocuments = await loadWorkspaceQuestionDocuments(workspace, question);
+    if (fallbackDocuments.length) {
+      result = await askWorkspace(
+        workspace._id.toString(),
+        question,
+        fallbackDocuments
+      );
+      result.retrievalFallback = "mongodb";
+    }
+  }
   res.json(result);
 });
 
@@ -194,37 +302,6 @@ const summarizeGroupChat = asyncHandler(async (req, res) => {
     }))
   );
   res.json(result);
-});
-
-const coordinateWorkspaceEvent = asyncHandler(async (req, res) => {
-  const question =
-    req.body.question?.trim() || "Are we ready for the event? What is blocked?";
-
-  const workspace = await getWorkspaceForMember(req.params.workspaceId, req.user._id);
-  await syncWorkspace(workspace);
-  const tasks = await loadAgentTaskState(workspace._id);
-  const result = await coordinateEvent(
-    workspace._id.toString(),
-    question,
-    workspace.users.map(({ name, email }) => ({ name, email })),
-    tasks
-  );
-  const proposedTasks = normalizeAgentTasks(
-    result.report.proposed_tasks,
-    req.user.email
-  );
-  res.json({
-    ...result,
-    report: { ...result.report, proposed_tasks: proposedTasks },
-    approvalToken: proposedTasks.length
-      ? createApprovalToken({
-          workspaceId: workspace._id.toString(),
-          userId: req.user._id.toString(),
-          tasks: proposedTasks,
-          source: "event-coordinator-agent",
-        })
-      : null,
-  });
 });
 
 const createWorkspaceTaskPlan = asyncHandler(async (req, res) => {
@@ -349,7 +426,6 @@ const applyWorkspaceTaskPlan = asyncHandler(async (req, res) => {
 module.exports = {
   applyWorkspaceTaskPlan,
   askWorkspaceAssistant,
-  coordinateWorkspaceEvent,
   createWorkspaceTaskPlan,
   summarizeGroupChat,
   syncWorkspaceKnowledge,

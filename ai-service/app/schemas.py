@@ -58,20 +58,3 @@ class ChatSummary(BaseModel):
         max_length=20,
         description="Dates, times, or deadline phrases from the chat",
     )
-
-
-class EventCoordinatorReport(BaseModel):
-    answer: str = Field(
-        max_length=1500,
-        description="Direct answer to the coordinator question",
-    )
-    readiness: Literal["ready", "mostly_ready", "at_risk", "blocked", "unknown"]
-    blocked_items: list[str] = Field(default_factory=list, max_length=20)
-    overloaded_members: list[str] = Field(default_factory=list, max_length=20)
-    follow_up_tasks: list[str] = Field(default_factory=list, max_length=20)
-    risks: list[str] = Field(default_factory=list, max_length=20)
-    proposed_tasks: list[PlannedTask] = Field(
-        default_factory=list,
-        max_length=20,
-        description="Approval-gated tasks drafted by the coordinator agent",
-    )

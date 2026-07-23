@@ -384,3 +384,9 @@ services:
         value: "12"
       - key: CHROMA_DIR
         value: /data/chroma
+      - key: LANGSMITH_TRACING
+        value: "false"
+      - key: LANGSMITH_PROJECT
+        value: comconnect-ai
+      - key: LANGSMITH_API_KEY
+        sync: false

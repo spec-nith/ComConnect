@@ -33,7 +33,14 @@ const statusLabels = {
   done: "Done",
 };
 
-const TaskCard = ({ task, fetchTasks, config, draggable = false, onDragStart }) => {
+const TaskCard = ({
+  task,
+  fetchTasks,
+  config,
+  currentUserId,
+  draggable = false,
+  onDragStart,
+}) => {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const toast = useToast();
   const [newStatus, setNewStatus] = useState(task.status);
@@ -41,6 +48,7 @@ const TaskCard = ({ task, fetchTasks, config, draggable = false, onDragStart }) 
   const [saving, setSaving] = useState(false);
   const assignee = task.assignee || {};
   const creator = task.createdBy || {};
+  const canDelete = creator?._id === currentUserId;
 
   useEffect(() => setNewStatus(task.status), [task.status]);
 
@@ -81,6 +89,27 @@ const TaskCard = ({ task, fetchTasks, config, draggable = false, onDragStart }) 
     } catch (error) {
       toast({
         title: "Comment could not be added",
+        description: error.response?.data?.message || error.message,
+        status: "error",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteTask = async () => {
+    if (!canDelete) return;
+    const confirmed = window.confirm("Delete this task permanently?");
+    if (!confirmed) return;
+    setSaving(true);
+    try {
+      await axios.delete(`${API_URL}/tasks/${task._id}`, config);
+      onClose();
+      await fetchTasks();
+      toast({ title: "Task deleted", status: "success" });
+    } catch (error) {
+      toast({
+        title: "Task could not be deleted",
         description: error.response?.data?.message || error.message,
         status: "error",
       });
@@ -248,6 +277,19 @@ const TaskCard = ({ task, fetchTasks, config, draggable = false, onDragStart }) 
             </Stack>
           </ModalBody>
           <ModalFooter>
+            {canDelete && (
+              <Button
+                variant="outline"
+                borderColor="#7f1d1d"
+                color="#fca5a5"
+                mr="auto"
+                onClick={deleteTask}
+                isLoading={saving}
+                _hover={{ bg: "#2a1717" }}
+              >
+                Delete task
+              </Button>
+            )}
             <Button variant="ghost" color="#bdc8c3" onClick={onClose} _hover={{ bg: "#202725" }}>
               Close
             </Button>
